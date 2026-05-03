@@ -874,44 +874,11 @@ uint8_t oled_clear(void)
 
 uint8_t oled_update_async(void)
 {
-    uint8_t pages;
-    uint8_t start_page;
-    uint8_t end_page;
-    uint8_t res;
-
     if (s_oled_inited == 0U) {
         return OLED_ERR;
     }
-    if (s_oled_busy != 0U) {
-        res = oled_async_poll();
-        return (res == OLED_BUSY) ? OLED_BUSY : res;
-    }
-    if (s_dirty_pages == 0U) {
-        return OLED_OK;
-    }
 
-    pages = s_dirty_pages;
-    s_dirty_pages = 0U;
-    s_active_pages = pages;
-    s_oled_error = OLED_OK;
-    s_oled_busy = 1U;
-
-    oled_find_window(s_active_pages, &start_page, &end_page);
-    pages = oled_pages_to_mask(start_page, end_page);
-    s_active_pages &= (uint8_t)~pages;
-
-    if (oled_start_window_cmd(start_page, end_page) != OLED_OK) {
-        s_dirty_pages |= (uint8_t)(pages | s_active_pages);
-        s_active_pages = 0U;
-        s_tx_phase = OLED_TX_IDLE;
-        s_tx_dma_done = 0U;
-        s_tx_dma_error = 0U;
-        s_oled_busy = 0U;
-        s_oled_error = OLED_ERR;
-        return OLED_ERR;
-    }
-
-    return OLED_OK;
+    return oled_update_dirty_sync();
 }
 
 uint8_t oled_update(void)
