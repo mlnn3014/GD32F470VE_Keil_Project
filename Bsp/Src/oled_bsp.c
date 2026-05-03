@@ -687,6 +687,30 @@ static uint8_t oled_start_next_window(void)
     return OLED_OK;
 }
 
+static void oled_dma_poll_flags(void)
+{
+    if ((s_oled_busy == 0U) || (s_tx_dma_done != 0U) || (s_tx_dma_error != 0U)) {
+        return;
+    }
+
+    if ((SET == dma_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_TAE)) ||
+        (SET == dma_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_SDE)) ||
+        (SET == dma_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_FEE))) {
+        dma_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_TAE);
+        dma_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_SDE);
+        dma_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_FEE);
+        oled_stop_i2c_dma();
+        s_tx_dma_error = 1U;
+        return;
+    }
+
+    if (SET == dma_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_FTF)) {
+        dma_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_FTF);
+        oled_stop_i2c_dma();
+        s_tx_dma_done = 1U;
+    }
+}
+
 static uint8_t oled_async_poll(void)
 {
     uint8_t res;
@@ -697,17 +721,19 @@ static uint8_t oled_async_poll(void)
     }
 
     pages = (uint8_t)(s_active_pages | oled_current_window_pages());
+    oled_dma_poll_flags();
+
     if (s_tx_dma_error != 0U) {
         oled_async_fail(pages, OLED_ERR);
         return OLED_ERR;
     }
 
-    if ((uint32_t)(systick_get_ms() - s_tx_started_ms) >= OLED_ASYNC_TIMEOUT_MS) {
-        oled_async_fail(pages, OLED_TIMEOUT);
-        return OLED_TIMEOUT;
-    }
-
     if (s_tx_dma_done == 0U) {
+        if ((uint32_t)(systick_get_ms() - s_tx_started_ms) >= OLED_ASYNC_TIMEOUT_MS) {
+            oled_async_fail(pages, OLED_TIMEOUT);
+            return OLED_TIMEOUT;
+        }
+
         return OLED_BUSY;
     }
 
