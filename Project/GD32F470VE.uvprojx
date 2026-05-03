@@ -340,7 +340,7 @@
               <MiscControls></MiscControls>
               <Define>USE_STDPERIPH_DRIVER,GD32F470,__PERF_COUNTER_CFG_USE_SYSTICK_WRAPPER__</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Core\Inc;..\App\Inc;..\Bsp\Inc;..\Compenents\bsp;..\Compenents\gd30ad3344;..\Compenents\oled;..\Compenents\oled\libdriver;..\Compenents\gd25qxx;..\Compenents\button;..\Compenents\sdio;..\Compenents\fatfs;..\Firmware\GD32F4xx_standard_peripheral\Include;..\Firmware\CMSIS_5\CMSIS\Core\Include;..\Firmware\CMSIS;..\Firmware\CMSIS\GD\GD32F4xx\Include</IncludePath>
+              <IncludePath>..\Core\Inc;..\App\Inc;..\Bsp\Inc;..\Compenents\bsp;..\Compenents\gd30ad3344;..\Compenents\oled;..\Compenents\gd25qxx;..\Compenents\button;..\Compenents\sdio;..\Compenents\fatfs;..\Firmware\GD32F4xx_standard_peripheral\Include;..\Firmware\CMSIS_5\CMSIS\Core\Include;..\Firmware\CMSIS;..\Firmware\CMSIS\GD\GD32F4xx\Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -523,11 +523,6 @@
               <FileName>oled.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Compenents\oled\oled.c</FilePath>
-            </File>
-            <File>
-              <FileName>driver_ssd1306.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Compenents\oled\libdriver\driver_ssd1306.c</FilePath>
             </File>
           </Files>
         </Group>

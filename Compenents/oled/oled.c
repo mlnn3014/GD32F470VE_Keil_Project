@@ -1,6 +1,5 @@
 #include "oled.h"
 
-#include "driver_ssd1306.h"
 #include "oled_bsp.h"
 #include "oledfont.h"
 #include "systick.h"
@@ -15,8 +14,8 @@
 #define OLED_CMD_BUF_SIZE    7U
 #define OLED_SYNC_TIMEOUT_MS 200U
 
-static ssd1306_handle_t oled_handle;
 static uint8_t oled_inited;
+static uint8_t oled_gram[OLED_WIDTH][OLED_PAGE_COUNT];
 static uint8_t oled_cmd_buf[OLED_CMD_BUF_SIZE];
 static uint8_t oled_data_buf[OLED_WIDTH * OLED_PAGE_COUNT];
 static volatile uint8_t oled_dirty_pages;
@@ -24,48 +23,18 @@ static uint8_t oled_busy;
 static uint8_t oled_error;
 static uint8_t oled_next_page;
 
-static uint8_t oled_noop_init(void)
-{
-    return OLED_OK;
-}
-
-static uint8_t oled_noop_write(uint8_t value)
-{
-    (void)value;
-
-    return OLED_OK;
-}
-
-static uint8_t oled_noop_spi_write(uint8_t *buf, uint16_t len)
-{
-    (void)buf;
-    (void)len;
-
-    return OLED_OK;
-}
-
-static void oled_link_handle(void)
-{
-    DRIVER_SSD1306_LINK_INIT(&oled_handle, ssd1306_handle_t);
-    DRIVER_SSD1306_LINK_IIC_INIT(&oled_handle, oled_bsp_iic_init);
-    DRIVER_SSD1306_LINK_IIC_DEINIT(&oled_handle, oled_bsp_iic_deinit);
-    DRIVER_SSD1306_LINK_IIC_WRITE(&oled_handle, oled_bsp_iic_write);
-    DRIVER_SSD1306_LINK_SPI_INIT(&oled_handle, oled_noop_init);
-    DRIVER_SSD1306_LINK_SPI_DEINIT(&oled_handle, oled_noop_init);
-    DRIVER_SSD1306_LINK_SPI_WRITE_COMMAND(&oled_handle, oled_noop_spi_write);
-    DRIVER_SSD1306_LINK_SPI_COMMAND_DATA_GPIO_INIT(&oled_handle, oled_noop_init);
-    DRIVER_SSD1306_LINK_SPI_COMMAND_DATA_GPIO_DEINIT(&oled_handle, oled_noop_init);
-    DRIVER_SSD1306_LINK_SPI_COMMAND_DATA_GPIO_WRITE(&oled_handle, oled_noop_write);
-    DRIVER_SSD1306_LINK_RESET_GPIO_INIT(&oled_handle, oled_noop_init);
-    DRIVER_SSD1306_LINK_RESET_GPIO_DEINIT(&oled_handle, oled_noop_init);
-    DRIVER_SSD1306_LINK_RESET_GPIO_WRITE(&oled_handle, oled_noop_write);
-    DRIVER_SSD1306_LINK_DELAY_MS(&oled_handle, oled_bsp_delay_ms);
-    DRIVER_SSD1306_LINK_DEBUG_PRINT(&oled_handle, oled_bsp_debug_print);
-}
-
 static uint8_t oled_write_cmds(const uint8_t *cmds, uint8_t len)
 {
-    return ssd1306_write_cmd(&oled_handle, (uint8_t *)cmds, len);
+    if ((cmds == NULL) || (len == 0U)) {
+        return OLED_ERR;
+    }
+
+    return oled_bsp_iic_write(OLED_IIC_ADDR, 0x00U, (uint8_t *)cmds, len);
+}
+
+static uint8_t oled_write_cmd(uint8_t cmd)
+{
+    return oled_write_cmds(&cmd, 1U);
 }
 
 static uint8_t oled_config_128x32(void)
@@ -192,7 +161,7 @@ static uint16_t oled_prepare_window_data(uint8_t start_page, uint8_t end_page)
 
     for (page = start_page; page <= end_page; page++) {
         for (x = 0U; x < OLED_WIDTH; x++) {
-            oled_data_buf[len] = oled_handle.gram[x][page];
+            oled_data_buf[len] = oled_gram[x][page];
             len++;
         }
     }
@@ -263,7 +232,7 @@ static void oled_draw_char_6x8(uint8_t x, uint8_t page, uint8_t ch, uint8_t colo
         if ((x + col) >= OLED_WIDTH) {
             return;
         }
-        oled_handle.gram[x + col][page] = (color != 0U) ? F6X8[chr][col] : (uint8_t)~F6X8[chr][col];
+        oled_gram[x + col][page] = (color != 0U) ? F6X8[chr][col] : (uint8_t)~F6X8[chr][col];
     }
 }
 
@@ -281,13 +250,13 @@ static void oled_draw_char_8x16(uint8_t x, uint8_t page, uint8_t ch, uint8_t col
         if ((x + col) >= OLED_WIDTH) {
             return;
         }
-        oled_handle.gram[x + col][page] = (color != 0U) ?
-                                          F8X16[(chr * 16U) + col] :
-                                          (uint8_t)~F8X16[(chr * 16U) + col];
+        oled_gram[x + col][page] = (color != 0U) ?
+                                   F8X16[(chr * 16U) + col] :
+                                   (uint8_t)~F8X16[(chr * 16U) + col];
         if ((page + 1U) < OLED_PAGE_COUNT) {
-            oled_handle.gram[x + col][page + 1U] = (color != 0U) ?
-                                                   F8X16[(chr * 16U) + col + 8U] :
-                                                   (uint8_t)~F8X16[(chr * 16U) + col + 8U];
+            oled_gram[x + col][page + 1U] = (color != 0U) ?
+                                            F8X16[(chr * 16U) + col + 8U] :
+                                            (uint8_t)~F8X16[(chr * 16U) + col + 8U];
         }
     }
 }
@@ -296,24 +265,13 @@ uint8_t oled_init(void)
 {
     uint8_t res;
 
-    oled_link_handle();
-    res = ssd1306_set_interface(&oled_handle, SSD1306_INTERFACE_IIC);
-    if (res != 0U) {
-        return OLED_ERR;
-    }
-
-    res = ssd1306_set_addr_pin(&oled_handle, SSD1306_ADDR_SA0_0);
-    if (res != 0U) {
-        return OLED_ERR;
-    }
-
-    res = ssd1306_init(&oled_handle);
-    if (res != 0U) {
-        return OLED_ERR;
+    res = oled_bsp_iic_init();
+    if (res != OLED_OK) {
+        return res;
     }
 
     res = oled_config_128x32();
-    if (res != 0U) {
+    if (res != OLED_OK) {
         return OLED_ERR;
     }
 
@@ -322,7 +280,7 @@ uint8_t oled_init(void)
     oled_error = OLED_OK;
     oled_dirty_pages = 0U;
     oled_next_page = 0U;
-    (void)memset(oled_handle.gram, 0, sizeof(oled_handle.gram));
+    (void)memset(oled_gram, 0, sizeof(oled_gram));
     oled_mark_all_dirty();
 
     return oled_update();
@@ -337,13 +295,14 @@ uint8_t oled_deinit(void)
     }
 
     (void)oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
-    res = ssd1306_deinit(&oled_handle);
+    (void)oled_write_cmd(0xAEU);
+    res = oled_bsp_iic_deinit();
     oled_inited = 0U;
     oled_dirty_pages = 0U;
     oled_busy = 0U;
     oled_next_page = 0U;
 
-    return (res == 0U) ? OLED_OK : OLED_ERR;
+    return (res == OLED_OK) ? OLED_OK : OLED_ERR;
 }
 
 uint8_t oled_clear(void)
@@ -352,7 +311,7 @@ uint8_t oled_clear(void)
         return OLED_ERR;
     }
 
-    (void)memset(oled_handle.gram, 0, sizeof(oled_handle.gram));
+    (void)memset(oled_gram, 0, sizeof(oled_gram));
     oled_mark_all_dirty();
 
     return OLED_OK;
@@ -438,7 +397,7 @@ uint8_t oled_display_on(void)
         return res;
     }
 
-    return (ssd1306_set_display(&oled_handle, SSD1306_DISPLAY_ON) == 0U) ? OLED_OK : OLED_ERR;
+    return oled_write_cmd(0xAFU);
 }
 
 uint8_t oled_display_off(void)
@@ -454,7 +413,7 @@ uint8_t oled_display_off(void)
         return res;
     }
 
-    return (ssd1306_set_display(&oled_handle, SSD1306_DISPLAY_OFF) == 0U) ? OLED_OK : OLED_ERR;
+    return oled_write_cmd(0xAEU);
 }
 
 uint8_t oled_draw_point(uint8_t x, uint8_t y, uint8_t color)
@@ -469,9 +428,9 @@ uint8_t oled_draw_point(uint8_t x, uint8_t y, uint8_t color)
     page = (uint8_t)(y / 8U);
     bit = (uint8_t)(1U << (y % 8U));
     if (color != 0U) {
-        oled_handle.gram[x][page] |= bit;
+        oled_gram[x][page] |= bit;
     } else {
-        oled_handle.gram[x][page] &= (uint8_t)~bit;
+        oled_gram[x][page] &= (uint8_t)~bit;
     }
     oled_mark_pages(y, y);
 
