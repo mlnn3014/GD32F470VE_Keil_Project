@@ -37,7 +37,7 @@
 #define OLED_CMD_BUF_SIZE     7U
 #define OLED_FONT_8           8U
 #define OLED_FONT_16          16U
-#define OLED_ASYNC_TIMEOUT_MS 50U
+#define OLED_ASYNC_TIMEOUT_MS 200U
 #define OLED_SYNC_TIMEOUT_MS  200U
 
 typedef enum {
