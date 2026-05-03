@@ -52,6 +52,7 @@ virtualFolder:
           folders: []
         - name: oled
           files:
+            - path: Compenents/oled/oled.c
             - path: Compenents/oled/libdriver/driver_ssd1306.c
           folders: []
         - name: button

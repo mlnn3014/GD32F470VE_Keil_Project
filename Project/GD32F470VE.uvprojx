@@ -520,6 +520,11 @@
           <GroupName>Components/oled</GroupName>
           <Files>
             <File>
+              <FileName>oled.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Compenents\oled\oled.c</FilePath>
+            </File>
+            <File>
               <FileName>driver_ssd1306.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Compenents\oled\libdriver\driver_ssd1306.c</FilePath>

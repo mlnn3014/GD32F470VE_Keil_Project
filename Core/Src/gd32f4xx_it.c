@@ -36,7 +36,6 @@ OF SUCH DAMAGE.
 #include "main.h"
 #include "systick.h"
 #include "led_app.h"
-#include "oled_bsp.h"
 #include "sdio_sdcard.h"
 #include "string.h"
 
@@ -187,11 +186,6 @@ void USART0_IRQHandler(void)
 void SDIO_IRQHandler(void)
 {
     sd_interrupts_process();
-}
-
-void DMA0_Channel6_IRQHandler(void)
-{
-    oled_dma_irq_handler();
 }
 
 /*!

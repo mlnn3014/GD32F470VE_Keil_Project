@@ -14,11 +14,11 @@
 #include "systick.h"
 #include "led_bsp.h"
 #include "btn_bsp.h"
-#include "oled_bsp.h"
 
 #include "button.h"
 #include "gd25qxx.h"
 #include "gd30ad3344.h"
+#include "oled.h"
 #include "sdio_sdcard.h"
 #include "ff.h"
 #include "diskio.h"

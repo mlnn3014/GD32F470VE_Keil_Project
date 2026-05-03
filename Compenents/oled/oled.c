@@ -1,586 +1,583 @@
-/*
-this library is a 0.91'OLED(ssd1306) driver
-*/
-
-
 #include "oled.h"
+
+#include "driver_ssd1306.h"
+#include "oled_bsp.h"
 #include "oledfont.h"
-#include "gd32f4xx_i2c.h"
-#include "gd32f4xx_gpio.h" // GPIO 控制
-#include "gd32f4xx_dma.h"
+#include "systick.h"
 
-/* OLED DMA buffers */
-extern uint8_t oled_cmd_buf[2];
-extern uint8_t oled_data_buf[2];
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
 
-#define OLED_I2C_WAIT_TIMEOUT 100000U
-#define OLED_I2C_ADDR_WRITE 0x78U
+#define OLED_IIC_ADDR        0x78U
+#define OLED_PAGE_COUNT      (OLED_HEIGHT / 8U)
+#define OLED_ALL_PAGES       ((uint8_t)((1U << OLED_PAGE_COUNT) - 1U))
+#define OLED_CMD_BUF_SIZE    7U
+#define OLED_SYNC_TIMEOUT_MS 200U
 
-uint8_t s_oled_available = 1U;
+static ssd1306_handle_t oled_handle;
+static uint8_t oled_inited;
+static uint8_t oled_cmd_buf[OLED_CMD_BUF_SIZE];
+static uint8_t oled_data_buf[OLED_WIDTH * OLED_PAGE_COUNT];
+static volatile uint8_t oled_dirty_pages;
+static uint8_t oled_busy;
+static uint8_t oled_error;
+static uint8_t oled_next_page;
 
-/**
- */
-static void I2C_Bus_Reset(void)
+static uint8_t oled_noop_init(void)
+{
+    return OLED_OK;
+}
+
+static uint8_t oled_noop_write(uint8_t value)
+{
+    (void)value;
+
+    return OLED_OK;
+}
+
+static uint8_t oled_noop_spi_write(uint8_t *buf, uint16_t len)
+{
+    (void)buf;
+    (void)len;
+
+    return OLED_OK;
+}
+
+static void oled_link_handle(void)
+{
+    DRIVER_SSD1306_LINK_INIT(&oled_handle, ssd1306_handle_t);
+    DRIVER_SSD1306_LINK_IIC_INIT(&oled_handle, oled_bsp_iic_init);
+    DRIVER_SSD1306_LINK_IIC_DEINIT(&oled_handle, oled_bsp_iic_deinit);
+    DRIVER_SSD1306_LINK_IIC_WRITE(&oled_handle, oled_bsp_iic_write);
+    DRIVER_SSD1306_LINK_SPI_INIT(&oled_handle, oled_noop_init);
+    DRIVER_SSD1306_LINK_SPI_DEINIT(&oled_handle, oled_noop_init);
+    DRIVER_SSD1306_LINK_SPI_WRITE_COMMAND(&oled_handle, oled_noop_spi_write);
+    DRIVER_SSD1306_LINK_SPI_COMMAND_DATA_GPIO_INIT(&oled_handle, oled_noop_init);
+    DRIVER_SSD1306_LINK_SPI_COMMAND_DATA_GPIO_DEINIT(&oled_handle, oled_noop_init);
+    DRIVER_SSD1306_LINK_SPI_COMMAND_DATA_GPIO_WRITE(&oled_handle, oled_noop_write);
+    DRIVER_SSD1306_LINK_RESET_GPIO_INIT(&oled_handle, oled_noop_init);
+    DRIVER_SSD1306_LINK_RESET_GPIO_DEINIT(&oled_handle, oled_noop_init);
+    DRIVER_SSD1306_LINK_RESET_GPIO_WRITE(&oled_handle, oled_noop_write);
+    DRIVER_SSD1306_LINK_DELAY_MS(&oled_handle, oled_bsp_delay_ms);
+    DRIVER_SSD1306_LINK_DEBUG_PRINT(&oled_handle, oled_bsp_debug_print);
+}
+
+static uint8_t oled_write_cmds(const uint8_t *cmds, uint8_t len)
+{
+    return ssd1306_write_cmd(&oled_handle, (uint8_t *)cmds, len);
+}
+
+static uint8_t oled_config_128x32(void)
+{
+    static const uint8_t init_cmds[] = {
+        0xAEU,
+        0xD5U, 0x80U,
+        0xA8U, 0x1FU,
+        0xD3U, 0x00U,
+        0x40U,
+        0x8DU, 0x14U,
+        0x20U, 0x00U,
+        0xA1U,
+        0xC8U,
+        0xDAU, 0x00U,
+        0x81U, 0x80U,
+        0xD9U, 0x1FU,
+        0xDBU, 0x40U,
+        0xA4U,
+        0xA6U,
+        0xAFU,
+    };
+
+    return oled_write_cmds(init_cmds, (uint8_t)sizeof(init_cmds));
+}
+
+static uint8_t oled_pages_to_mask(uint8_t start_page, uint8_t end_page)
+{
+    uint8_t page;
+    uint8_t mask = 0U;
+
+    for (page = start_page; page <= end_page; page++) {
+        mask |= (uint8_t)(1U << page);
+    }
+
+    return mask;
+}
+
+static void oled_mark_pages(uint8_t top, uint8_t bottom)
+{
+    uint8_t page;
+    uint8_t start_page;
+    uint8_t end_page;
+
+    if (top >= OLED_HEIGHT) {
+        return;
+    }
+    if (bottom >= OLED_HEIGHT) {
+        bottom = OLED_HEIGHT - 1U;
+    }
+    if (top > bottom) {
+        return;
+    }
+
+    start_page = (uint8_t)(top / 8U);
+    end_page = (uint8_t)(bottom / 8U);
+    for (page = start_page; page <= end_page; page++) {
+        oled_dirty_pages |= (uint8_t)(1U << page);
+    }
+}
+
+static void oled_mark_all_dirty(void)
+{
+    oled_dirty_pages = OLED_ALL_PAGES;
+}
+
+static void oled_find_window(uint8_t mask, uint8_t *start_page, uint8_t *end_page)
+{
+    uint8_t page;
+
+    *start_page = 0U;
+    *end_page = 0U;
+
+    for (page = 0U; page < OLED_PAGE_COUNT; page++) {
+        if ((mask & (1U << page)) != 0U) {
+            *start_page = page;
+            *end_page = page;
+            while (((*end_page + 1U) < OLED_PAGE_COUNT) &&
+                   ((mask & (1U << (*end_page + 1U))) != 0U)) {
+                (*end_page)++;
+            }
+            return;
+        }
+    }
+}
+
+static void oled_find_window_from(uint8_t mask, uint8_t first_page, uint8_t *start_page, uint8_t *end_page)
 {
     uint8_t i;
+    uint8_t page;
 
-    gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_8 | GPIO_PIN_9);
-    gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_8 | GPIO_PIN_9);
+    *start_page = 0U;
+    *end_page = 0U;
 
-    // 先释放 SCL/SDA
-    gpio_bit_set(GPIOB, GPIO_PIN_8 | GPIO_PIN_9);
-
-    // 发送 9 个 SCL 脉冲，尝试释放被拉低的 SDA
-    for (i = 0; i < 9; i++) {
-        gpio_bit_reset(GPIOB, GPIO_PIN_8);
-        gpio_bit_set(GPIOB, GPIO_PIN_8);
-    }
-
-    // 人工产生一次 STOP
-    gpio_bit_set(GPIOB, GPIO_PIN_8);
-    gpio_bit_reset(GPIOB, GPIO_PIN_9);
-    gpio_bit_set(GPIOB, GPIO_PIN_9);
-
-    gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_9);
-    gpio_output_options_set(GPIOB, GPIO_OTYPE_OD, GPIO_OSPEED_50MHZ, GPIO_PIN_9);
-    gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_8);
-    gpio_output_options_set(GPIOB, GPIO_OTYPE_OD, GPIO_OSPEED_50MHZ, GPIO_PIN_8);
-
-    i2c_deinit(I2C0);
-    i2c_clock_config(I2C0, 400000, I2C_DTCY_2);
-    i2c_mode_addr_config(I2C0, I2C_I2CMODE_ENABLE, I2C_ADDFORMAT_7BITS, 0x72);
-    i2c_enable(I2C0);
-    i2c_ack_config(I2C0, I2C_ACK_ENABLE);
-
-}
-
-/**
- * 
-*/
-static uint8_t oled_wait_i2c_flag_set(uint32_t i2c_periph, i2c_flag_enum flag, uint32_t timeout)
-{
-    while (timeout--) {
-        if (SET == i2c_flag_get(i2c_periph, flag)) {
-            return 1U;
-        }
-    }
-    return 0U;
-}
-
-static uint8_t oled_wait_i2c_stop_clear(uint32_t i2c_periph, uint32_t timeout)
-{
-    while (timeout--) {
-        if (0U == (I2C_CTL0(i2c_periph) & I2C_CTL0_STOP)) {
-            return 1U;
-        }
-    }
-    return 0U;
-}
-
-static uint8_t oled_wait_dma_ftf(uint32_t dma_periph, dma_channel_enum channel, uint32_t timeout)
-{
-    while (timeout--) {
-        if (SET == dma_flag_get(dma_periph, channel, DMA_FLAG_FTF)) {
-            return 1U;
-        }
-    }
-    return 0U;
-}
-
-static uint8_t oled_wait_addsend_or_nack(uint32_t timeout)
-{
-    while (timeout--) {
-        if (SET == i2c_flag_get(I2C0, I2C_FLAG_ADDSEND)) {
-            return 1U;
-        }
-        if (SET == i2c_flag_get(I2C0, I2C_FLAG_AERR)) {
-            i2c_flag_clear(I2C0, I2C_FLAG_AERR);
-            return 0U;
-        }
-    }
-    return 0U;
-}
-
-uint8_t initcmd1[] = {
-    0xAE,       //display off
-    0xD5, 0x80, //Set Display Clock Divide Ratio/Oscillator Frequency
-    0xA8, 0x1F, //set multiplex Ratio
-    0xD3, 0x00, //display offset
-    0x40,       //set display start line
-    0x8d, 0x14, //set charge pump
-    0xa1,       //set segment remap
-    0xc8,       //set com output scan direction
-    0xda, 0x00, //set com pins hardware configuration
-    0x81, 0x80, //set contrast control
-    0xd9, 0x1f, //set pre-charge period
-    0xdb, 0x40, //set vcom deselect level
-    0xa4,       //Set Entire Display On/Off
-    0xaf,       //set display on
-};
-/**
-**/
-void OLED_Write_cmd(uint8_t cmd)
-{
-    uint32_t timeout = 10000;
-
-    if (0U == s_oled_available) {
-        return;
-    }
-
-    oled_cmd_buf[0] = 0x00;
-    oled_cmd_buf[1] = cmd;
-
-    // 若总线忙，先做一次总线恢复
-    if(i2c_flag_get(I2C0, I2C_FLAG_I2CBSY)) {
-        I2C_Bus_Reset();
-    }
-
-    while(i2c_flag_get(I2C0, I2C_FLAG_I2CBSY) && (--timeout > 0)) {
-    }
-
-    // 超时后再恢复并重试一次
-    if(timeout == 0) {
-        I2C_Bus_Reset();
-        timeout = 10000;
-        while(i2c_flag_get(I2C0, I2C_FLAG_I2CBSY) && (--timeout > 0)) {
-        }
-        if(timeout == 0) {
+    for (i = 0U; i < OLED_PAGE_COUNT; i++) {
+        page = (uint8_t)((first_page + i) % OLED_PAGE_COUNT);
+        if ((mask & (1U << page)) != 0U) {
+            *start_page = page;
+            *end_page = page;
+            while (((*end_page + 1U) < OLED_PAGE_COUNT) &&
+                   ((mask & (1U << (*end_page + 1U))) != 0U)) {
+                (*end_page)++;
+            }
             return;
         }
     }
-
-    i2c_start_on_bus(I2C0);
-    if (!oled_wait_i2c_flag_set(I2C0, I2C_FLAG_SBSEND, OLED_I2C_WAIT_TIMEOUT)) {
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
-    }
-
-    i2c_master_addressing(I2C0, OLED_I2C_ADDR_WRITE, I2C_TRANSMITTER);
-    if (!oled_wait_addsend_or_nack(OLED_I2C_WAIT_TIMEOUT)) {
-        i2c_stop_on_bus(I2C0);
-        (void)oled_wait_i2c_stop_clear(I2C0, OLED_I2C_WAIT_TIMEOUT / 10U);
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
-    }
-
-    i2c_flag_clear(I2C0, I2C_FLAG_ADDSEND);
-    if (!oled_wait_i2c_flag_set(I2C0, I2C_FLAG_TBE, OLED_I2C_WAIT_TIMEOUT)) {
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
-    }
-
-    dma_memory_address_config(DMA0, DMA_CH6, DMA_MEMORY_0, (uint32_t)oled_cmd_buf);
-    dma_transfer_number_config(DMA0, DMA_CH6, 2);
-    i2c_dma_config(I2C0, I2C_DMA_ON);
-    dma_channel_enable(DMA0, DMA_CH6);
-
-    if (!oled_wait_dma_ftf(DMA0, DMA_CH6, OLED_I2C_WAIT_TIMEOUT)) {
-        dma_channel_disable(DMA0, DMA_CH6);
-        i2c_dma_config(I2C0, I2C_DMA_OFF);
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
-    }
-
-    dma_flag_clear(DMA0, DMA_CH6, DMA_FLAG_FTF);
-    dma_channel_disable(DMA0, DMA_CH6);
-    i2c_dma_config(I2C0, I2C_DMA_OFF);
-    i2c_stop_on_bus(I2C0);
-
-    if (!oled_wait_i2c_stop_clear(I2C0, OLED_I2C_WAIT_TIMEOUT)) {
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
-    }
 }
 
-void OLED_Write_data(uint8_t data)
+static void oled_prepare_window_cmd(uint8_t start_page, uint8_t end_page)
 {
-    uint32_t timeout = 10000;
+    oled_cmd_buf[0] = 0x21U;
+    oled_cmd_buf[1] = 0x00U;
+    oled_cmd_buf[2] = (uint8_t)(OLED_WIDTH - 1U);
+    oled_cmd_buf[3] = 0x22U;
+    oled_cmd_buf[4] = start_page;
+    oled_cmd_buf[5] = end_page;
+}
 
-    if (0U == s_oled_available) {
-        return;
-    }
+static uint16_t oled_prepare_window_data(uint8_t start_page, uint8_t end_page)
+{
+    uint8_t page;
+    uint8_t x;
+    uint16_t len = 0U;
 
-    oled_data_buf[0] = 0x40;
-    oled_data_buf[1] = data;
-
-    // 若总线忙，先做一次总线恢复
-    if(i2c_flag_get(I2C0, I2C_FLAG_I2CBSY)) {
-        I2C_Bus_Reset();
-    }
-
-    while(i2c_flag_get(I2C0, I2C_FLAG_I2CBSY) && (--timeout > 0)) {
-    }
-
-    // 超时后再恢复并重试一次
-    if(timeout == 0) {
-        I2C_Bus_Reset();
-        timeout = 10000;
-        while(i2c_flag_get(I2C0, I2C_FLAG_I2CBSY) && (--timeout > 0)) {
+    for (page = start_page; page <= end_page; page++) {
+        for (x = 0U; x < OLED_WIDTH; x++) {
+            oled_data_buf[len] = oled_handle.gram[x][page];
+            len++;
         }
-        if(timeout == 0) {
+    }
+
+    return len;
+}
+
+static uint8_t oled_flush_window(uint8_t start_page, uint8_t end_page)
+{
+    uint8_t res;
+    uint16_t len;
+
+    oled_prepare_window_cmd(start_page, end_page);
+    res = oled_bsp_iic_write(OLED_IIC_ADDR, 0x00U, oled_cmd_buf, 6U);
+    if (res != OLED_OK) {
+        return res;
+    }
+
+    len = oled_prepare_window_data(start_page, end_page);
+
+    return oled_bsp_iic_write(OLED_IIC_ADDR, 0x40U, oled_data_buf, len);
+}
+
+static uint8_t oled_update_dirty_sync(void)
+{
+    uint8_t res;
+    uint8_t start_page;
+    uint8_t end_page;
+    uint8_t pages;
+
+    if (oled_busy != 0U) {
+        res = oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
+        if (res != OLED_OK) {
+            return res;
+        }
+    }
+
+    oled_error = OLED_OK;
+    while (oled_dirty_pages != 0U) {
+        oled_find_window(oled_dirty_pages, &start_page, &end_page);
+        pages = oled_pages_to_mask(start_page, end_page);
+        oled_dirty_pages &= (uint8_t)~pages;
+
+        res = oled_flush_window(start_page, end_page);
+        if (res != OLED_OK) {
+            oled_dirty_pages |= pages;
+            oled_error = res;
+            return res;
+        }
+    }
+
+    oled_next_page = 0U;
+
+    return OLED_OK;
+}
+
+static void oled_draw_char_6x8(uint8_t x, uint8_t page, uint8_t ch, uint8_t color)
+{
+    uint8_t col;
+    uint8_t chr = ch;
+
+    if ((chr < ' ') || (chr > '~')) {
+        chr = ' ';
+    }
+    chr = (uint8_t)(chr - ' ');
+
+    for (col = 0U; col < 6U; col++) {
+        if ((x + col) >= OLED_WIDTH) {
             return;
         }
-    }
-
-    i2c_start_on_bus(I2C0);
-    if (!oled_wait_i2c_flag_set(I2C0, I2C_FLAG_SBSEND, OLED_I2C_WAIT_TIMEOUT)) {
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
-    }
-
-    i2c_master_addressing(I2C0, OLED_I2C_ADDR_WRITE, I2C_TRANSMITTER);
-    if (!oled_wait_addsend_or_nack(OLED_I2C_WAIT_TIMEOUT)) {
-        i2c_stop_on_bus(I2C0);
-        (void)oled_wait_i2c_stop_clear(I2C0, OLED_I2C_WAIT_TIMEOUT / 10U);
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
-    }
-
-    i2c_flag_clear(I2C0, I2C_FLAG_ADDSEND);
-    if (!oled_wait_i2c_flag_set(I2C0, I2C_FLAG_TBE, OLED_I2C_WAIT_TIMEOUT)) {
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
-    }
-
-    dma_memory_address_config(DMA0, DMA_CH6, DMA_MEMORY_0, (uint32_t)oled_data_buf);
-    dma_transfer_number_config(DMA0, DMA_CH6, 2);
-    i2c_dma_config(I2C0, I2C_DMA_ON);
-    dma_channel_enable(DMA0, DMA_CH6);
-
-    if (!oled_wait_dma_ftf(DMA0, DMA_CH6, OLED_I2C_WAIT_TIMEOUT)) {
-        dma_channel_disable(DMA0, DMA_CH6);
-        i2c_dma_config(I2C0, I2C_DMA_OFF);
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
-    }
-
-    dma_flag_clear(DMA0, DMA_CH6, DMA_FLAG_FTF);
-    dma_channel_disable(DMA0, DMA_CH6);
-    i2c_dma_config(I2C0, I2C_DMA_OFF);
-    i2c_stop_on_bus(I2C0);
-
-    if (!oled_wait_i2c_stop_clear(I2C0, OLED_I2C_WAIT_TIMEOUT)) {
-        I2C_Bus_Reset();
-        s_oled_available = 0U;
-        return;
+        oled_handle.gram[x + col][page] = (color != 0U) ? F6X8[chr][col] : (uint8_t)~F6X8[chr][col];
     }
 }
 
-/**
-*/
-void OLED_ShowPic(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, uint8_t BMP[])
+static void oled_draw_char_8x16(uint8_t x, uint8_t page, uint8_t ch, uint8_t color)
 {
-    uint16_t i = 0;
-    uint8_t x, y;
-    for (y = y0; y < y1; y++)
-    {
-        OLED_Set_Position(x0, y);
-        for (x = x0; x < x1; x++)
-        {
-            OLED_Write_data(BMP[i++]);
+    uint8_t col;
+    uint8_t chr = ch;
+
+    if ((chr < ' ') || (chr > '~')) {
+        chr = ' ';
+    }
+    chr = (uint8_t)(chr - ' ');
+
+    for (col = 0U; col < 8U; col++) {
+        if ((x + col) >= OLED_WIDTH) {
+            return;
+        }
+        oled_handle.gram[x + col][page] = (color != 0U) ?
+                                          F8X16[(chr * 16U) + col] :
+                                          (uint8_t)~F8X16[(chr * 16U) + col];
+        if ((page + 1U) < OLED_PAGE_COUNT) {
+            oled_handle.gram[x + col][page + 1U] = (color != 0U) ?
+                                                   F8X16[(chr * 16U) + col + 8U] :
+                                                   (uint8_t)~F8X16[(chr * 16U) + col + 8U];
         }
     }
 }
 
-/**
-*/
-void OLED_ShowHanzi(uint8_t x, uint8_t y, uint8_t no)
+uint8_t oled_init(void)
 {
-    uint8_t t, adder = 0;
-    OLED_Set_Position(x, y);
-    for (t = 0; t < 16; t++)
-    {
-        OLED_Write_data(Hzk[2 * no][t]);
-        adder += 1;
+    uint8_t res;
+
+    oled_link_handle();
+    res = ssd1306_set_interface(&oled_handle, SSD1306_INTERFACE_IIC);
+    if (res != 0U) {
+        return OLED_ERR;
     }
-    OLED_Set_Position(x, y + 1);
-    for (t = 0; t < 16; t++)
-    {
-        OLED_Write_data(Hzk[2 * no + 1][t]);
-        adder += 1;
+
+    res = ssd1306_set_addr_pin(&oled_handle, SSD1306_ADDR_SA0_0);
+    if (res != 0U) {
+        return OLED_ERR;
     }
+
+    res = ssd1306_init(&oled_handle);
+    if (res != 0U) {
+        return OLED_ERR;
+    }
+
+    res = oled_config_128x32();
+    if (res != 0U) {
+        return OLED_ERR;
+    }
+
+    oled_inited = 1U;
+    oled_busy = 0U;
+    oled_error = OLED_OK;
+    oled_dirty_pages = 0U;
+    oled_next_page = 0U;
+    (void)memset(oled_handle.gram, 0, sizeof(oled_handle.gram));
+    oled_mark_all_dirty();
+
+    return oled_update();
 }
 
-/**
- * @note	
-*/
-void OLED_ShowHzbig(uint8_t x, uint8_t y, uint8_t n)
+uint8_t oled_deinit(void)
 {
-    uint8_t t, adder = 0;
-    OLED_Set_Position(x, y);
-    for (t = 0; t < 32; t++)
-    {
-        OLED_Write_data(Hzb[4 * n][t]);
-        adder += 1;
-    }
-    OLED_Set_Position(x, y + 1);
-    for (t = 0; t < 32; t++)
-    {
-        OLED_Write_data(Hzb[4 * n + 1][t]);
-        adder += 1;
+    uint8_t res;
+
+    if (oled_inited == 0U) {
+        return OLED_OK;
     }
 
-    OLED_Set_Position(x, y + 2);
-    for (t = 0; t < 32; t++)
-    {
-        OLED_Write_data(Hzb[4 * n + 2][t]);
-        adder += 1;
-    }
-    OLED_Set_Position(x, y + 3);
-    for (t = 0; t < 32; t++)
-    {
-        OLED_Write_data(Hzb[4 * n + 3][t]);
-        adder += 1;
-    }
+    (void)oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
+    res = ssd1306_deinit(&oled_handle);
+    oled_inited = 0U;
+    oled_dirty_pages = 0U;
+    oled_busy = 0U;
+    oled_next_page = 0U;
+
+    return (res == 0U) ? OLED_OK : OLED_ERR;
 }
 
-/**
- * @note	
-*/
-void OLED_ShowFloat(uint8_t x, uint8_t y, float num, uint8_t accuracy, uint8_t fontsize)
+uint8_t oled_clear(void)
 {
-    uint8_t i = 0;
-    uint8_t j = 0;
-    uint8_t t = 0;
-    uint8_t temp = 0;
-    uint16_t numel = 0;
-    uint32_t integer = 0;
-    float decimals = 0;
-
-    if (num < 0)
-    {
-        OLED_ShowChar(x, y, '-', fontsize);
-        num = 0 - num;
-        i++;
+    if (oled_inited == 0U) {
+        return OLED_ERR;
     }
 
-    integer = (uint32_t)num;
-    decimals = num - integer;
+    (void)memset(oled_handle.gram, 0, sizeof(oled_handle.gram));
+    oled_mark_all_dirty();
 
-    if (integer)
-    {
-        numel = integer;
-
-        while (numel)
-        {
-            numel /= 10;
-            j++;
-        }
-        i += (j - 1);
-        for (temp = 0; temp < j; temp++)
-        {
-            OLED_ShowChar(x + 8 * (i - temp), y, integer % 10 + '0', fontsize); // 鏄剧ず鏁存暟閮ㄥ垎
-            integer /= 10;
-        }
-    }
-    else
-    {
-        OLED_ShowChar(x + 8 * i, y, temp + '0', fontsize);
-    }
-    i++;
-    if (accuracy)
-    {
-        OLED_ShowChar(x + 8 * i, y, '.', fontsize);
-
-        i++;
-        for (t = 0; t < accuracy; t++)
-        {
-            decimals *= 10;
-            temp = (uint8_t)decimals;
-            OLED_ShowChar(x + 8 * (i + t), y, temp + '0', fontsize);
-            decimals -= temp;
-        }
-    }
+    return OLED_OK;
 }
 
-/**
- * @param m - base
- * @param n - exponent
- * @return result
-*/
-static uint32_t OLED_Pow(uint8_t a, uint8_t n)
+uint8_t oled_update(void)
 {
-    uint32_t result = 1;
-    while (n--)
-    {
-        result *= a;
-    }
-    return result;
-}
-
-/**
- * @note	
-*/
-void OLED_ShowNum(uint8_t x, uint8_t y, uint32_t num, uint8_t length, uint8_t fontsize)
-{
-    uint8_t t, temp;
-    uint8_t enshow = 0;
-    for (t = 0; t < length; t++)
-    {
-        temp = (num / OLED_Pow(10, length - t - 1)) % 10;
-        if (enshow == 0 && t < (length - 1))
-        {
-            if (temp == 0)
-            {
-                OLED_ShowChar(x + (fontsize / 2) * t, y, ' ', fontsize);
-                continue;
-            }
-            else
-                enshow = 1;
-        }
-        OLED_ShowChar(x + (fontsize / 2) * t, y, temp + '0', fontsize);
-    }
-}
-
-
-/**
-**/
-void OLED_ShowStr(uint8_t x, uint8_t y, char *ch, uint8_t fontsize)
-{
-    uint8_t j = 0;
-    while (ch[j] != '\0')
-    {
-        OLED_ShowChar(x, y, ch[j], fontsize);
-        x += 8;
-        if (x > 120)
-        {
-            x = 0;
-            y += 2;
-        }
-        j++;
-    }
-}
-
-/**
- * @param no  character
-**/
-void OLED_ShowChar(uint8_t x, uint8_t y, uint8_t ch, uint8_t fontsize)
-{
-    uint8_t c = 0, i = 0;
-    c = ch - ' ';
-
-    if (x > 127) //beyond the right boundary
-    {
-        x = 0;
-        y++;
+    if (oled_inited == 0U) {
+        return OLED_ERR;
     }
 
-    if (fontsize == 16)
-    {
-        OLED_Set_Position(x, y);
-        for (i = 0; i < 8; i++)
-        {
-            OLED_Write_data(F8X16[c * 16 + i]);
-        }
-        OLED_Set_Position(x, y + 1);
-        for (i = 0; i < 8; i++)
-        {
-            OLED_Write_data(F8X16[c * 16 + i + 8]);
-        }
+    return oled_update_dirty_sync();
+}
+
+uint8_t oled_update_async(void)
+{
+    uint8_t res;
+    uint8_t pages;
+    uint8_t start_page;
+    uint8_t end_page;
+
+    if (oled_inited == 0U) {
+        return OLED_ERR;
     }
-    else
-    {
-        OLED_Set_Position(x, y);
-        for (i = 0; i < 6; i++)
-        {
-            OLED_Write_data(F6X8[c][i]);
-        }
+    if (oled_busy != 0U) {
+        return OLED_BUSY;
     }
-}
-
-
-/**
-**/
-void OLED_Allfill(void)
-{
-    uint8_t i, j;
-    for (i = 0; i < 4; i++)
-    {
-        OLED_Write_cmd(0xb0 + i);
-        OLED_Write_cmd(0x00);
-        OLED_Write_cmd(0x10);
-        for (j = 0; j < 128; j++)
-        {
-            OLED_Write_data(0xFF);
-        }
+    if (oled_dirty_pages == 0U) {
+        return OLED_OK;
     }
-}
 
-/**
-**/
-void OLED_Set_Position(uint8_t x, uint8_t y)
-{
-    OLED_Write_cmd(0xb0 + y);
-    OLED_Write_cmd(((x & 0xf0) >> 4) | 0x10);
-    OLED_Write_cmd((x & 0x0f) | 0x00);
-}
-/**
-**/
-void OLED_Clear(void)
-{
-    uint8_t i, n;
-    for (i = 0; i < 4; i++)
-    {
-        OLED_Write_cmd(0xb0 + i);
-        OLED_Write_cmd(0x00);
-        OLED_Write_cmd(0x10);
-        for (n = 0; n < 128; n++)
-        {
-            OLED_Write_data(0);
-        }
+    oled_find_window_from(oled_dirty_pages, oled_next_page, &start_page, &end_page);
+    pages = oled_pages_to_mask(start_page, end_page);
+    oled_dirty_pages &= (uint8_t)~pages;
+    oled_busy = 1U;
+    oled_error = OLED_OK;
+
+    res = oled_flush_window(start_page, end_page);
+    oled_busy = 0U;
+    oled_next_page = (uint8_t)((end_page + 1U) % OLED_PAGE_COUNT);
+    if (res != OLED_OK) {
+        oled_dirty_pages |= pages;
+        oled_error = res;
+        return res;
     }
-}
-/**
-**/
-void OLED_Display_On(void)
-{
-    OLED_Write_cmd(0x8D);
-    OLED_Write_cmd(0x14);
-    OLED_Write_cmd(0xAF);
-}
-void OLED_Display_Off(void)
-{
-    OLED_Write_cmd(0x8D);
-    OLED_Write_cmd(0x10);
-    OLED_Write_cmd(0xAF);
+
+    return (oled_dirty_pages != 0U) ? OLED_BUSY : OLED_OK;
 }
 
-/**
-**/
-void OLED_Init(void)
+uint8_t oled_is_busy(void)
 {
-    s_oled_available = 1U;
+    return oled_busy;
+}
 
-    {
-        uint8_t i;
-        for (i = 0; i < sizeof(initcmd1); i++) {
-            OLED_Write_cmd(initcmd1[i]);
-            if (0U == s_oled_available) {
-                return;
-            }
+uint8_t oled_has_dirty(void)
+{
+    return (oled_dirty_pages != 0U) ? 1U : 0U;
+}
+
+uint8_t oled_wait_ready(uint32_t timeout_ms)
+{
+    uint32_t start = systick_get_ms();
+
+    while (oled_busy != 0U) {
+        if ((uint32_t)(systick_get_ms() - start) >= timeout_ms) {
+            return OLED_TIMEOUT;
         }
     }
 
-    OLED_Clear();
-    OLED_Set_Position(0, 0);
+    return (oled_error == OLED_OK) ? OLED_OK : OLED_ERR;
 }
 
+uint8_t oled_display_on(void)
+{
+    uint8_t res;
 
+    if (oled_inited == 0U) {
+        return OLED_ERR;
+    }
 
+    res = oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
+    if (res != OLED_OK) {
+        return res;
+    }
 
+    return (ssd1306_set_display(&oled_handle, SSD1306_DISPLAY_ON) == 0U) ? OLED_OK : OLED_ERR;
+}
 
+uint8_t oled_display_off(void)
+{
+    uint8_t res;
 
+    if (oled_inited == 0U) {
+        return OLED_ERR;
+    }
 
+    res = oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
+    if (res != OLED_OK) {
+        return res;
+    }
 
+    return (ssd1306_set_display(&oled_handle, SSD1306_DISPLAY_OFF) == 0U) ? OLED_OK : OLED_ERR;
+}
 
+uint8_t oled_draw_point(uint8_t x, uint8_t y, uint8_t color)
+{
+    uint8_t page;
+    uint8_t bit;
 
+    if ((oled_inited == 0U) || (x >= OLED_WIDTH) || (y >= OLED_HEIGHT)) {
+        return OLED_ERR;
+    }
 
+    page = (uint8_t)(y / 8U);
+    bit = (uint8_t)(1U << (y % 8U));
+    if (color != 0U) {
+        oled_handle.gram[x][page] |= bit;
+    } else {
+        oled_handle.gram[x][page] &= (uint8_t)~bit;
+    }
+    oled_mark_pages(y, y);
+
+    return OLED_OK;
+}
+
+uint8_t oled_fill_rect(uint8_t left, uint8_t top, uint8_t right, uint8_t bottom, uint8_t color)
+{
+    uint8_t x;
+    uint8_t y;
+
+    if ((oled_inited == 0U) || (left >= OLED_WIDTH) || (top >= OLED_HEIGHT) ||
+        (left > right) || (top > bottom)) {
+        return OLED_ERR;
+    }
+    if (right >= OLED_WIDTH) {
+        right = OLED_WIDTH - 1U;
+    }
+    if (bottom >= OLED_HEIGHT) {
+        bottom = OLED_HEIGHT - 1U;
+    }
+
+    for (y = top; y <= bottom; y++) {
+        for (x = left; x <= right; x++) {
+            (void)oled_draw_point(x, y, color);
+        }
+    }
+    oled_mark_pages(top, bottom);
+
+    return OLED_OK;
+}
+
+uint8_t oled_show_string(uint8_t x, uint8_t y, const char *str, uint8_t font, uint8_t color)
+{
+    uint8_t page;
+    uint8_t char_w;
+    uint8_t char_h;
+    uint8_t cur_x;
+    uint8_t end_y;
+    uint8_t any = 0U;
+
+    if ((oled_inited == 0U) || (str == NULL) || (x >= OLED_WIDTH) || (y >= OLED_HEIGHT)) {
+        return OLED_ERR;
+    }
+    if ((y % 8U) != 0U) {
+        return OLED_ERR;
+    }
+
+    if (font == OLED_FONT_8) {
+        char_w = 6U;
+        char_h = 8U;
+    } else if (font == OLED_FONT_16) {
+        char_w = 8U;
+        char_h = 16U;
+    } else {
+        return OLED_ERR;
+    }
+
+    if ((y + char_h) > OLED_HEIGHT) {
+        return OLED_ERR;
+    }
+
+    page = (uint8_t)(y / 8U);
+    cur_x = x;
+    while (*str != '\0') {
+        if ((cur_x + char_w) > OLED_WIDTH) {
+            break;
+        }
+
+        if (font == OLED_FONT_8) {
+            oled_draw_char_6x8(cur_x, page, (uint8_t)*str, color);
+        } else {
+            oled_draw_char_8x16(cur_x, page, (uint8_t)*str, color);
+        }
+        cur_x = (uint8_t)(cur_x + char_w);
+        str++;
+        any = 1U;
+    }
+
+    if (any == 0U) {
+        return OLED_ERR;
+    }
+
+    end_y = (uint8_t)(y + char_h - 1U);
+    oled_mark_pages(y, end_y);
+
+    return OLED_OK;
+}
+
+int oled_printf(uint8_t x, uint8_t y, const char *format, ...)
+{
+    char buffer[128];
+    va_list arg;
+    int len;
+
+    va_start(arg, format);
+    len = vsnprintf(buffer, sizeof(buffer), format, arg);
+    va_end(arg);
+
+    if (len < 0) {
+        return len;
+    }
+
+    if (oled_show_string(x, y, buffer, OLED_FONT_8, 1U) != OLED_OK) {
+        return -1;
+    }
+
+    return len;
+}
