@@ -28,7 +28,6 @@
 #define OLED_DMA_CLOCK        RCU_DMA0
 #define OLED_DMA_CH           DMA_CH6
 #define OLED_DMA_SUBPERI      DMA_SUBPERI1
-#define OLED_DMA_IRQn         DMA0_Channel6_IRQn
 
 #define OLED_PAGE_COUNT       (OLED_HEIGHT / 8U)
 #define OLED_ALL_PAGES        ((uint8_t)((1U << OLED_PAGE_COUNT) - 1U))
@@ -37,29 +36,16 @@
 #define OLED_CMD_BUF_SIZE     7U
 #define OLED_FONT_8           8U
 #define OLED_FONT_16          16U
-#define OLED_ASYNC_TIMEOUT_MS 200U
 #define OLED_SYNC_TIMEOUT_MS  200U
-
-typedef enum {
-    OLED_TX_IDLE = 0,
-    OLED_TX_CMD,
-    OLED_TX_DATA,
-} oled_tx_phase_t;
 
 static ssd1306_handle_t s_oled_handle;
 static uint8_t s_oled_inited;
 static uint8_t s_oled_tx_buf[OLED_TX_BUF_SIZE];
 static uint8_t s_oled_cmd_buf[OLED_CMD_BUF_SIZE];
 static volatile uint8_t s_dirty_pages;
-static volatile uint8_t s_active_pages;
-static volatile uint8_t s_oled_busy;
-static volatile uint8_t s_oled_error;
-static volatile oled_tx_phase_t s_tx_phase;
-static volatile uint8_t s_tx_dma_done;
-static volatile uint8_t s_tx_dma_error;
-static uint8_t s_tx_start_page;
-static uint8_t s_tx_end_page;
-static uint32_t s_tx_started_ms;
+static uint8_t s_oled_busy;
+static uint8_t s_oled_error;
+static uint8_t s_next_update_page;
 
 static uint8_t oled_pages_to_mask(uint8_t start_page, uint8_t end_page);
 
@@ -112,20 +98,6 @@ static uint8_t oled_wait_i2c_tx_complete(uint32_t timeout)
     return OLED_TIMEOUT;
 }
 
-static uint8_t oled_i2c_tx_status(void)
-{
-    if (SET == i2c_flag_get(OLED_I2C_PERIPH, I2C_FLAG_AERR)) {
-        i2c_flag_clear(OLED_I2C_PERIPH, I2C_FLAG_AERR);
-        return OLED_ERR;
-    }
-
-    if (SET == i2c_flag_get(OLED_I2C_PERIPH, I2C_FLAG_BTC)) {
-        return OLED_OK;
-    }
-
-    return OLED_BUSY;
-}
-
 static uint8_t oled_wait_addsend_or_nack(uint32_t timeout)
 {
     while (timeout-- != 0U) {
@@ -140,14 +112,6 @@ static uint8_t oled_wait_addsend_or_nack(uint32_t timeout)
     }
 
     return 0U;
-}
-
-static void oled_dma_int_enable_all(void)
-{
-    dma_interrupt_enable(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FTF);
-    dma_interrupt_enable(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_TAE);
-    dma_interrupt_enable(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_SDE);
-    dma_interrupt_enable(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FEE);
 }
 
 static void oled_dma_int_disable_all(void)
@@ -281,21 +245,6 @@ static void oled_stop_i2c_dma(void)
     i2c_dma_last_transfer_config(OLED_I2C_PERIPH, I2C_DMALST_OFF);
 }
 
-static uint8_t oled_current_window_pages(void)
-{
-    if (s_tx_phase == OLED_TX_IDLE) {
-        return 0U;
-    }
-
-    return oled_pages_to_mask(s_tx_start_page, s_tx_end_page);
-}
-
-static void oled_tx_finish(void)
-{
-    oled_stop_i2c_dma();
-    i2c_stop_on_bus(OLED_I2C_PERIPH);
-}
-
 static uint8_t oled_tx_finish_blocking(void)
 {
     uint8_t res;
@@ -316,7 +265,7 @@ static uint8_t oled_tx_finish_blocking(void)
     return res;
 }
 
-static uint8_t oled_dma_start(uint8_t addr, uint8_t control, uint8_t *buf, uint16_t len, uint8_t irq)
+static uint8_t oled_dma_start(uint8_t addr, uint8_t control, uint8_t *buf, uint16_t len)
 {
     uint8_t res;
 
@@ -345,12 +294,7 @@ static uint8_t oled_dma_start(uint8_t addr, uint8_t control, uint8_t *buf, uint1
     i2c_dma_last_transfer_config(OLED_I2C_PERIPH, I2C_DMALST_ON);
     i2c_dma_config(OLED_I2C_PERIPH, I2C_DMA_ON);
 
-    if (irq != 0U) {
-        oled_dma_int_enable_all();
-    } else {
-        oled_dma_int_disable_all();
-    }
-
+    oled_dma_int_disable_all();
     dma_channel_enable(OLED_DMA_PERIPH, OLED_DMA_CH);
 
     return OLED_OK;
@@ -360,11 +304,7 @@ static uint8_t oled_dma_write(uint8_t addr, uint8_t control, uint8_t *buf, uint1
 {
     uint8_t res;
 
-    if (s_oled_busy != 0U) {
-        return OLED_BUSY;
-    }
-
-    res = oled_dma_start(addr, control, buf, len, 0U);
+    res = oled_dma_start(addr, control, buf, len);
     if (res != OLED_OK) {
         return res;
     }
@@ -412,9 +352,6 @@ static uint8_t oled_iic_init(void)
     dma_single_data_mode_init(OLED_DMA_PERIPH, OLED_DMA_CH, &dma_init_struct);
     dma_circulation_disable(OLED_DMA_PERIPH, OLED_DMA_CH);
     dma_channel_subperipheral_select(OLED_DMA_PERIPH, OLED_DMA_CH, OLED_DMA_SUBPERI);
-
-    nvic_irq_enable(OLED_DMA_IRQn, 2U, 0U);
-
     return OLED_OK;
 }
 
@@ -528,6 +465,28 @@ static void oled_find_window(uint8_t mask, uint8_t *start_page, uint8_t *end_pag
     }
 }
 
+static void oled_find_window_from(uint8_t mask, uint8_t first_page, uint8_t *start_page, uint8_t *end_page)
+{
+    uint8_t i;
+    uint8_t page;
+
+    *start_page = 0U;
+    *end_page = 0U;
+
+    for (i = 0U; i < OLED_PAGE_COUNT; i++) {
+        page = (uint8_t)((first_page + i) % OLED_PAGE_COUNT);
+        if ((mask & (1U << page)) != 0U) {
+            *start_page = page;
+            *end_page = page;
+            while (((*end_page + 1U) < OLED_PAGE_COUNT) &&
+                   ((mask & (1U << (*end_page + 1U))) != 0U)) {
+                (*end_page)++;
+            }
+            return;
+        }
+    }
+}
+
 static uint8_t oled_pages_to_mask(uint8_t start_page, uint8_t end_page)
 {
     uint8_t mask = 0U;
@@ -567,41 +526,19 @@ static uint16_t oled_prepare_window_data(uint8_t start_page, uint8_t end_page)
     return len;
 }
 
-static uint8_t oled_start_window_cmd(uint8_t start_page, uint8_t end_page)
-{
-    uint8_t res;
-
-    s_tx_start_page = start_page;
-    s_tx_end_page = end_page;
-    s_tx_phase = OLED_TX_CMD;
-    s_tx_dma_done = 0U;
-    s_tx_dma_error = 0U;
-    s_tx_started_ms = systick_get_ms();
-    oled_prepare_window_cmd(start_page, end_page);
-
-    res = oled_dma_start(OLED_I2C_WRITE_ADDR, 0x00U, s_oled_cmd_buf, 6U, 1U);
-    if (res != OLED_OK) {
-        s_tx_phase = OLED_TX_IDLE;
-    }
-
-    return res;
-}
-
-static uint8_t oled_start_window_data(void)
+static uint8_t oled_flush_window(uint8_t start_page, uint8_t end_page)
 {
     uint8_t res;
     uint16_t len;
 
-    len = oled_prepare_window_data(s_tx_start_page, s_tx_end_page);
-    s_tx_phase = OLED_TX_DATA;
-    s_tx_dma_done = 0U;
-    s_tx_dma_error = 0U;
-    s_tx_started_ms = systick_get_ms();
-
-    res = oled_dma_start(OLED_I2C_WRITE_ADDR, 0x40U, &s_oled_tx_buf[1], len, 1U);
+    oled_prepare_window_cmd(start_page, end_page);
+    res = oled_dma_write(OLED_I2C_WRITE_ADDR, 0x00U, s_oled_cmd_buf, 6U);
     if (res != OLED_OK) {
-        s_tx_phase = OLED_TX_IDLE;
+        return res;
     }
+
+    len = oled_prepare_window_data(start_page, end_page);
+    res = oled_dma_write(OLED_I2C_WRITE_ADDR, 0x40U, &s_oled_tx_buf[1], len);
 
     return res;
 }
@@ -612,7 +549,6 @@ static uint8_t oled_update_dirty_sync(void)
     uint8_t start_page;
     uint8_t end_page;
     uint8_t pages;
-    uint16_t len;
 
     if (s_oled_busy != 0U) {
         res = oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
@@ -627,16 +563,7 @@ static uint8_t oled_update_dirty_sync(void)
         pages = oled_pages_to_mask(start_page, end_page);
         s_dirty_pages &= (uint8_t)~pages;
 
-        oled_prepare_window_cmd(start_page, end_page);
-        res = oled_dma_write(OLED_I2C_WRITE_ADDR, 0x00U, s_oled_cmd_buf, 6U);
-        if (res != OLED_OK) {
-            s_dirty_pages |= pages;
-            s_oled_error = res;
-            return res;
-        }
-
-        len = oled_prepare_window_data(start_page, end_page);
-        res = oled_dma_write(OLED_I2C_WRITE_ADDR, 0x40U, &s_oled_tx_buf[1], len);
+        res = oled_flush_window(start_page, end_page);
         if (res != OLED_OK) {
             s_dirty_pages |= pages;
             s_oled_error = res;
@@ -644,126 +571,8 @@ static uint8_t oled_update_dirty_sync(void)
         }
     }
 
-    s_active_pages = 0U;
-    s_tx_phase = OLED_TX_IDLE;
+    s_next_update_page = 0U;
     return OLED_OK;
-}
-
-static void oled_async_fail(uint8_t pages, uint8_t error)
-{
-    oled_tx_finish();
-    (void)oled_wait_i2c_stop_clear(OLED_I2C_PERIPH, OLED_I2C_WAIT_TIMEOUT / 10U);
-    oled_i2c_bus_reset();
-    s_dirty_pages |= pages;
-    s_active_pages = 0U;
-    s_tx_phase = OLED_TX_IDLE;
-    s_tx_dma_done = 0U;
-    s_tx_dma_error = 0U;
-    s_oled_error = error;
-    s_oled_busy = 0U;
-}
-
-static uint8_t oled_start_next_window(void)
-{
-    uint8_t start_page;
-    uint8_t end_page;
-    uint8_t pages;
-
-    if (s_active_pages == 0U) {
-        s_tx_phase = OLED_TX_IDLE;
-        s_oled_busy = 0U;
-        return OLED_OK;
-    }
-
-    oled_find_window(s_active_pages, &start_page, &end_page);
-    pages = oled_pages_to_mask(start_page, end_page);
-    s_active_pages &= (uint8_t)~pages;
-
-    if (oled_start_window_cmd(start_page, end_page) != OLED_OK) {
-        oled_async_fail((uint8_t)(pages | s_active_pages), OLED_ERR);
-        return OLED_ERR;
-    }
-
-    return OLED_OK;
-}
-
-static void oled_dma_poll_flags(void)
-{
-    if ((s_oled_busy == 0U) || (s_tx_dma_done != 0U) || (s_tx_dma_error != 0U)) {
-        return;
-    }
-
-    if ((SET == dma_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_TAE)) ||
-        (SET == dma_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_SDE)) ||
-        (SET == dma_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_FEE))) {
-        dma_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_TAE);
-        dma_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_SDE);
-        dma_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_FEE);
-        oled_stop_i2c_dma();
-        s_tx_dma_error = 1U;
-        return;
-    }
-
-    if (SET == dma_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_FTF)) {
-        dma_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_FLAG_FTF);
-        oled_stop_i2c_dma();
-        s_tx_dma_done = 1U;
-    }
-}
-
-static uint8_t oled_async_poll(void)
-{
-    uint8_t res;
-    uint8_t pages;
-
-    if (s_oled_busy == 0U) {
-        return (s_oled_error == OLED_OK) ? OLED_OK : s_oled_error;
-    }
-
-    pages = (uint8_t)(s_active_pages | oled_current_window_pages());
-    oled_dma_poll_flags();
-
-    if (s_tx_dma_error != 0U) {
-        oled_async_fail(pages, OLED_ERR);
-        return OLED_ERR;
-    }
-
-    if (s_tx_dma_done == 0U) {
-        if ((uint32_t)(systick_get_ms() - s_tx_started_ms) >= OLED_ASYNC_TIMEOUT_MS) {
-            oled_async_fail(pages, OLED_TIMEOUT);
-            return OLED_TIMEOUT;
-        }
-
-        return OLED_BUSY;
-    }
-
-    res = oled_i2c_tx_status();
-    if (res == OLED_BUSY) {
-        return OLED_BUSY;
-    }
-    if (res != OLED_OK) {
-        oled_async_fail(pages, res);
-        return res;
-    }
-
-    i2c_stop_on_bus(OLED_I2C_PERIPH);
-    if (oled_wait_i2c_stop_clear(OLED_I2C_PERIPH, OLED_I2C_WAIT_TIMEOUT) == 0U) {
-        oled_async_fail(pages, OLED_TIMEOUT);
-        return OLED_TIMEOUT;
-    }
-
-    s_tx_dma_done = 0U;
-    if (s_tx_phase == OLED_TX_CMD) {
-        if (oled_start_window_data() != OLED_OK) {
-            oled_async_fail(pages, OLED_ERR);
-            return OLED_ERR;
-        }
-
-        return OLED_BUSY;
-    }
-
-    s_tx_phase = OLED_TX_IDLE;
-    return oled_start_next_window();
 }
 
 static void oled_draw_char_6x8(uint8_t x, uint8_t page, uint8_t ch, uint8_t color)
@@ -833,8 +642,8 @@ uint8_t oled_init(void)
     s_oled_inited = 1U;
     s_oled_busy = 0U;
     s_oled_error = OLED_OK;
-    s_tx_phase = OLED_TX_IDLE;
     s_dirty_pages = 0U;
+    s_next_update_page = 0U;
     (void)memset(s_oled_handle.gram, 0, sizeof(s_oled_handle.gram));
     oled_mark_all_dirty();
 
@@ -849,13 +658,12 @@ uint8_t oled_deinit(void)
         return OLED_OK;
     }
 
-    (void)oled_wait_ready(OLED_ASYNC_TIMEOUT_MS);
+    (void)oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
     res = ssd1306_deinit(&s_oled_handle);
     s_oled_inited = 0U;
     s_dirty_pages = 0U;
-    s_active_pages = 0U;
     s_oled_busy = 0U;
-    s_tx_phase = OLED_TX_IDLE;
+    s_next_update_page = 0U;
 
     return (res == 0U) ? OLED_OK : OLED_ERR;
 }
@@ -874,11 +682,37 @@ uint8_t oled_clear(void)
 
 uint8_t oled_update_async(void)
 {
+    uint8_t res;
+    uint8_t pages;
+    uint8_t start_page;
+    uint8_t end_page;
+
     if (s_oled_inited == 0U) {
         return OLED_ERR;
     }
+    if (s_oled_busy != 0U) {
+        return OLED_BUSY;
+    }
+    if (s_dirty_pages == 0U) {
+        return OLED_OK;
+    }
 
-    return oled_update_dirty_sync();
+    oled_find_window_from(s_dirty_pages, s_next_update_page, &start_page, &end_page);
+    pages = oled_pages_to_mask(start_page, end_page);
+    s_dirty_pages &= (uint8_t)~pages;
+    s_oled_busy = 1U;
+    s_oled_error = OLED_OK;
+
+    res = oled_flush_window(start_page, end_page);
+    s_oled_busy = 0U;
+    s_next_update_page = (uint8_t)((end_page + 1U) % OLED_PAGE_COUNT);
+    if (res != OLED_OK) {
+        s_dirty_pages |= pages;
+        s_oled_error = res;
+        return res;
+    }
+
+    return (s_dirty_pages != 0U) ? OLED_BUSY : OLED_OK;
 }
 
 uint8_t oled_update(void)
@@ -892,35 +726,20 @@ uint8_t oled_update(void)
 
 uint8_t oled_is_busy(void)
 {
-    if (s_oled_busy != 0U) {
-        (void)oled_async_poll();
-    }
-
     return s_oled_busy;
 }
 
 uint8_t oled_has_dirty(void)
 {
-    if (s_oled_busy != 0U) {
-        (void)oled_async_poll();
-    }
-
     return (s_dirty_pages != 0U) ? 1U : 0U;
 }
 
 uint8_t oled_wait_ready(uint32_t timeout_ms)
 {
     uint32_t start = systick_get_ms();
-    uint8_t res;
 
     while (s_oled_busy != 0U) {
-        res = oled_async_poll();
-        if ((res != OLED_BUSY) && (res != OLED_OK)) {
-            return res;
-        }
-
         if ((uint32_t)(systick_get_ms() - start) >= timeout_ms) {
-            oled_async_fail((uint8_t)(s_active_pages | oled_current_window_pages()), OLED_TIMEOUT);
             return OLED_TIMEOUT;
         }
     }
@@ -935,7 +754,7 @@ uint8_t oled_display_on(void)
     if (s_oled_inited == 0U) {
         return OLED_ERR;
     }
-    res = oled_wait_ready(OLED_ASYNC_TIMEOUT_MS);
+    res = oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
     if (res != OLED_OK) {
         return res;
     }
@@ -950,7 +769,7 @@ uint8_t oled_display_off(void)
     if (s_oled_inited == 0U) {
         return OLED_ERR;
     }
-    res = oled_wait_ready(OLED_ASYNC_TIMEOUT_MS);
+    res = oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
     if (res != OLED_OK) {
         return res;
     }
@@ -1084,25 +903,5 @@ int oled_printf(uint8_t x, uint8_t y, const char *format, ...)
 
 void oled_dma_irq_handler(void)
 {
-    if (s_oled_busy == 0U) {
-        oled_dma_int_clear_all();
-        return;
-    }
-
-    if ((SET == dma_interrupt_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FLAG_TAE)) ||
-        (SET == dma_interrupt_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FLAG_SDE)) ||
-        (SET == dma_interrupt_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FLAG_FEE))) {
-        dma_interrupt_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FLAG_TAE);
-        dma_interrupt_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FLAG_SDE);
-        dma_interrupt_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FLAG_FEE);
-        oled_stop_i2c_dma();
-        s_tx_dma_error = 1U;
-        return;
-    }
-
-    if (SET == dma_interrupt_flag_get(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FLAG_FTF)) {
-        dma_interrupt_flag_clear(OLED_DMA_PERIPH, OLED_DMA_CH, DMA_INT_FLAG_FTF);
-        oled_stop_i2c_dma();
-        s_tx_dma_done = 1U;
-    }
+    oled_dma_int_clear_all();
 }
