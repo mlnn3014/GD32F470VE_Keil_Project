@@ -5,7 +5,6 @@ int main(void)
     systick_config();
 
     led_app_init();
-    btn_init();
     bsp_gd25qxx_init();
     bsp_usart_init();
 
@@ -28,13 +27,13 @@ int main(void)
     my_printf(DEBUG_USART, "BOOT: rtc done\r\n");
 
     sd_fatfs_init();
-    app_btn_init();
+    btn_app_init();
 
     my_printf(DEBUG_USART, "BOOT: oled init...\r\n");
     if (oled_init() == 0U) {
         my_printf(DEBUG_USART, "BOOT: oled done\r\n");
         oled_clear();
-        oled_printf(0, 0, "BOOT: start");
+        oled_text_show(OLED_FONT_8, 0U, 0U, 0U, "BOOT: start");
         (void)oled_update();
     } else {
         my_printf(DEBUG_USART, "BOOT: oled failed\r\n");

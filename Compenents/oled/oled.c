@@ -8,11 +8,17 @@
 #include <stdio.h>
 #include <string.h>
 
-#define OLED_IIC_ADDR        0x78U
 #define OLED_PAGE_COUNT      (OLED_HEIGHT / 8U)
 #define OLED_ALL_PAGES       ((uint8_t)((1U << OLED_PAGE_COUNT) - 1U))
 #define OLED_CMD_BUF_SIZE    7U
 #define OLED_SYNC_TIMEOUT_MS 200U
+
+typedef struct {
+    uint8_t char_w;
+    uint8_t char_h;
+    uint8_t rows;
+    uint8_t cols;
+} oled_font_info_t;
 
 static uint8_t oled_inited;
 static uint8_t oled_gram[OLED_WIDTH][OLED_PAGE_COUNT];
@@ -23,13 +29,64 @@ static uint8_t oled_busy;
 static uint8_t oled_error;
 static uint8_t oled_next_page;
 
+static uint8_t oled_wait_ready(uint32_t timeout_ms);
+
+static uint8_t oled_get_font_info(uint8_t font, oled_font_info_t *info)
+{
+    if (info == NULL) {
+        return OLED_ERR;
+    }
+
+    if (font == OLED_FONT_8) {
+        info->char_w = 6U;
+        info->char_h = 8U;
+    } else if (font == OLED_FONT_16) {
+        info->char_w = 8U;
+        info->char_h = 16U;
+    } else {
+        return OLED_ERR;
+    }
+
+    info->rows = (uint8_t)(OLED_HEIGHT / info->char_h);
+    info->cols = (uint8_t)(OLED_WIDTH / info->char_w);
+
+    return OLED_OK;
+}
+
+static uint8_t oled_text_to_rect(uint8_t font, uint8_t row, uint8_t col, uint8_t cols,
+                                 uint8_t *x, uint8_t *y, uint8_t *w, uint8_t *h)
+{
+    oled_font_info_t info;
+
+    if ((x == NULL) || (y == NULL) || (w == NULL) || (h == NULL)) {
+        return OLED_ERR;
+    }
+    if (oled_get_font_info(font, &info) != OLED_OK) {
+        return OLED_ERR;
+    }
+    if ((row >= info.rows) || (col >= info.cols)) {
+        return OLED_ERR;
+    }
+
+    if ((cols == 0U) || (cols > (uint8_t)(info.cols - col))) {
+        cols = (uint8_t)(info.cols - col);
+    }
+
+    *x = (uint8_t)(col * info.char_w);
+    *y = (uint8_t)(row * info.char_h);
+    *w = (uint8_t)(cols * info.char_w);
+    *h = info.char_h;
+
+    return OLED_OK;
+}
+
 static uint8_t oled_write_cmds(const uint8_t *cmds, uint8_t len)
 {
     if ((cmds == NULL) || (len == 0U)) {
         return OLED_ERR;
     }
 
-    return oled_bsp_iic_write(OLED_IIC_ADDR, 0x00U, (uint8_t *)cmds, len);
+    return oled_bsp_write(0x00U, cmds, len);
 }
 
 static uint8_t oled_write_cmd(uint8_t cmd)
@@ -175,14 +232,14 @@ static uint8_t oled_flush_window(uint8_t start_page, uint8_t end_page)
     uint16_t len;
 
     oled_prepare_window_cmd(start_page, end_page);
-    res = oled_bsp_iic_write(OLED_IIC_ADDR, 0x00U, oled_cmd_buf, 6U);
+    res = oled_bsp_write(0x00U, oled_cmd_buf, 6U);
     if (res != OLED_OK) {
         return res;
     }
 
     len = oled_prepare_window_data(start_page, end_page);
 
-    return oled_bsp_iic_write(OLED_IIC_ADDR, 0x40U, oled_data_buf, len);
+    return oled_bsp_write(0x40U, oled_data_buf, len);
 }
 
 static uint8_t oled_update_dirty_sync(void)
@@ -265,7 +322,7 @@ uint8_t oled_init(void)
 {
     uint8_t res;
 
-    res = oled_bsp_iic_init();
+    res = oled_bsp_init();
     if (res != OLED_OK) {
         return res;
     }
@@ -296,7 +353,7 @@ uint8_t oled_deinit(void)
 
     (void)oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
     (void)oled_write_cmd(0xAEU);
-    res = oled_bsp_iic_deinit();
+    res = oled_bsp_deinit();
     oled_inited = 0U;
     oled_dirty_pages = 0U;
     oled_busy = 0U;
@@ -326,7 +383,7 @@ uint8_t oled_update(void)
     return oled_update_dirty_sync();
 }
 
-uint8_t oled_update_async(void)
+uint8_t oled_service(void)
 {
     uint8_t res;
     uint8_t pages;
@@ -361,17 +418,7 @@ uint8_t oled_update_async(void)
     return (oled_dirty_pages != 0U) ? OLED_BUSY : OLED_OK;
 }
 
-uint8_t oled_is_busy(void)
-{
-    return oled_busy;
-}
-
-uint8_t oled_has_dirty(void)
-{
-    return (oled_dirty_pages != 0U) ? 1U : 0U;
-}
-
-uint8_t oled_wait_ready(uint32_t timeout_ms)
+static uint8_t oled_wait_ready(uint32_t timeout_ms)
 {
     uint32_t start = systick_get_ms();
 
@@ -439,8 +486,13 @@ uint8_t oled_draw_point(uint8_t x, uint8_t y, uint8_t color)
 
 uint8_t oled_fill_rect(uint8_t left, uint8_t top, uint8_t right, uint8_t bottom, uint8_t color)
 {
+    uint8_t page;
     uint8_t x;
-    uint8_t y;
+    uint8_t start_page;
+    uint8_t end_page;
+    uint8_t top_bit;
+    uint8_t bottom_bit;
+    uint8_t mask;
 
     if ((oled_inited == 0U) || (left >= OLED_WIDTH) || (top >= OLED_HEIGHT) ||
         (left > right) || (top > bottom)) {
@@ -453,9 +505,20 @@ uint8_t oled_fill_rect(uint8_t left, uint8_t top, uint8_t right, uint8_t bottom,
         bottom = OLED_HEIGHT - 1U;
     }
 
-    for (y = top; y <= bottom; y++) {
+    start_page = (uint8_t)(top / 8U);
+    end_page = (uint8_t)(bottom / 8U);
+
+    for (page = start_page; page <= end_page; page++) {
+        top_bit = (page == start_page) ? (uint8_t)(top % 8U) : 0U;
+        bottom_bit = (page == end_page) ? (uint8_t)(bottom % 8U) : 7U;
+        mask = (uint8_t)((0xFFU << top_bit) & (0xFFU >> (7U - bottom_bit)));
+
         for (x = left; x <= right; x++) {
-            (void)oled_draw_point(x, y, color);
+            if (color != 0U) {
+                oled_gram[x][page] |= mask;
+            } else {
+                oled_gram[x][page] &= (uint8_t)~mask;
+            }
         }
     }
     oled_mark_pages(top, bottom);
@@ -465,9 +528,8 @@ uint8_t oled_fill_rect(uint8_t left, uint8_t top, uint8_t right, uint8_t bottom,
 
 uint8_t oled_show_string(uint8_t x, uint8_t y, const char *str, uint8_t font, uint8_t color)
 {
+    oled_font_info_t info;
     uint8_t page;
-    uint8_t char_w;
-    uint8_t char_h;
     uint8_t cur_x;
     uint8_t end_y;
     uint8_t any = 0U;
@@ -478,25 +540,18 @@ uint8_t oled_show_string(uint8_t x, uint8_t y, const char *str, uint8_t font, ui
     if ((y % 8U) != 0U) {
         return OLED_ERR;
     }
-
-    if (font == OLED_FONT_8) {
-        char_w = 6U;
-        char_h = 8U;
-    } else if (font == OLED_FONT_16) {
-        char_w = 8U;
-        char_h = 16U;
-    } else {
+    if (oled_get_font_info(font, &info) != OLED_OK) {
         return OLED_ERR;
     }
 
-    if ((y + char_h) > OLED_HEIGHT) {
+    if ((y + info.char_h) > OLED_HEIGHT) {
         return OLED_ERR;
     }
 
     page = (uint8_t)(y / 8U);
     cur_x = x;
     while (*str != '\0') {
-        if ((cur_x + char_w) > OLED_WIDTH) {
+        if ((cur_x + info.char_w) > OLED_WIDTH) {
             break;
         }
 
@@ -505,7 +560,7 @@ uint8_t oled_show_string(uint8_t x, uint8_t y, const char *str, uint8_t font, ui
         } else {
             oled_draw_char_8x16(cur_x, page, (uint8_t)*str, color);
         }
-        cur_x = (uint8_t)(cur_x + char_w);
+        cur_x = (uint8_t)(cur_x + info.char_w);
         str++;
         any = 1U;
     }
@@ -514,7 +569,7 @@ uint8_t oled_show_string(uint8_t x, uint8_t y, const char *str, uint8_t font, ui
         return OLED_ERR;
     }
 
-    end_y = (uint8_t)(y + char_h - 1U);
+    end_y = (uint8_t)(y + info.char_h - 1U);
     oled_mark_pages(y, end_y);
 
     return OLED_OK;
@@ -535,6 +590,76 @@ int oled_printf(uint8_t x, uint8_t y, const char *format, ...)
     }
 
     if (oled_show_string(x, y, buffer, OLED_FONT_8, 1U) != OLED_OK) {
+        return -1;
+    }
+
+    return len;
+}
+
+uint8_t oled_text_clear(uint8_t font, uint8_t row, uint8_t col, uint8_t cols)
+{
+    uint8_t x;
+    uint8_t y;
+    uint8_t w;
+    uint8_t h;
+
+    if (oled_text_to_rect(font, row, col, cols, &x, &y, &w, &h) != OLED_OK) {
+        return OLED_ERR;
+    }
+
+    return oled_fill_rect(x, y, (uint8_t)(x + w - 1U), (uint8_t)(y + h - 1U), 0U);
+}
+
+uint8_t oled_text_show(uint8_t font, uint8_t row, uint8_t col, uint8_t cols, const char *str)
+{
+    oled_font_info_t info;
+    uint8_t x;
+    uint8_t y;
+    uint8_t w;
+    uint8_t h;
+    uint8_t show_cols;
+    char buffer[22];
+
+    if (str == NULL) {
+        return OLED_ERR;
+    }
+    if (oled_get_font_info(font, &info) != OLED_OK) {
+        return OLED_ERR;
+    }
+    if (oled_text_to_rect(font, row, col, cols, &x, &y, &w, &h) != OLED_OK) {
+        return OLED_ERR;
+    }
+
+    show_cols = (uint8_t)(w / info.char_w);
+    if (show_cols >= sizeof(buffer)) {
+        show_cols = (uint8_t)(sizeof(buffer) - 1U);
+    }
+
+    (void)oled_fill_rect(x, y, (uint8_t)(x + w - 1U), (uint8_t)(y + h - 1U), 0U);
+    (void)strncpy(buffer, str, show_cols);
+    buffer[show_cols] = '\0';
+
+    if (buffer[0] == '\0') {
+        return OLED_OK;
+    }
+
+    return oled_show_string(x, y, buffer, font, 1U);
+}
+
+int oled_text_printf(uint8_t font, uint8_t row, uint8_t col, uint8_t cols, const char *format, ...)
+{
+    char buffer[128];
+    va_list arg;
+    int len;
+
+    va_start(arg, format);
+    len = vsnprintf(buffer, sizeof(buffer), format, arg);
+    va_end(arg);
+
+    if (len < 0) {
+        return len;
+    }
+    if (oled_text_show(font, row, col, cols, buffer) != OLED_OK) {
         return -1;
     }
 

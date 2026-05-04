@@ -1,5 +1,5 @@
-#ifndef __OLED_APP_H__
-#define __OLED_APP_H__
+#ifndef OLED_APP_H
+#define OLED_APP_H
 
 #include "stdint.h"
 
@@ -8,11 +8,9 @@ extern "C" {
 #endif
 
 void oled_task(void);
-/* CUSTOM EDIT */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
-
+#endif /* OLED_APP_H */

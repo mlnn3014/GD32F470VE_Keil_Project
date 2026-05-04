@@ -1,17 +1,22 @@
 #include "mcu_cmic_gd32f470vet6.h"
 
-extern rtc_parameter_struct rtc_initpara;
+static rtc_time_t rtc_now;
 
-/*!
-    \brief      display the current time
-    \param[in]  none
-    \param[out] none
-    \retval     none
-*/
 void rtc_task(void)
 {
-    rtc_current_time_get(&rtc_initpara);
+    rtc_parameter_struct time;
 
-    (void)oled_fill_rect(48, 16, 127, 23, 0U);
-    oled_printf(48, 16, "%0.2x:%0.2x:%0.2x", rtc_initpara.hour, rtc_initpara.minute, rtc_initpara.second);
+    rtc_current_time_get(&time);
+    rtc_now.hour = time.hour;
+    rtc_now.minute = time.minute;
+    rtc_now.second = time.second;
+}
+
+void rtc_app_get_time(rtc_time_t *time)
+{
+    if (time == NULL) {
+        return;
+    }
+
+    *time = rtc_now;
 }

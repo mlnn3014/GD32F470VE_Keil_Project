@@ -1,4 +1,7 @@
-#include "mcu_cmic_gd32f470vet6.h"
+#include "btn_app.h"
+#include "button.h"
+#include "led_app.h"
+#include "systick.h"
 
 static button_t buttons[BTN_COUNT] = {
     {.id = BTN_1},
@@ -66,15 +69,18 @@ static void btn_event(button_t *button, button_event_t event)
         break;
     case BUTTON_EVT_LONG_PRESS:
         if (button->id == BTN_2)
+        {
             led_app_blink_toggle(LED_2, 100U);
+        }
         break;
     default:
         break;
     }
 }
 
-void app_btn_init(void)
+void btn_app_init(void)
 {
+    btn_init();
     button_init(buttons, BTN_COUNT, btn_read_state, btn_event);
 }
 

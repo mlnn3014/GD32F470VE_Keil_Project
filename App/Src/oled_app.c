@@ -1,10 +1,23 @@
 #include "mcu_cmic_gd32f470vet6.h"
 
+static void oled_app_draw_tick(void)
+{
+    (void)oled_text_printf(OLED_FONT_8, 0U, 0U, 0U, "uwTick: %u", systick_get_ms());
+}
+
+static void oled_app_draw_status(void)
+{
+    rtc_time_t time;
+
+    rtc_app_get_time(&time);
+
+    (void)oled_text_printf(OLED_FONT_8, 2U, 0U, 0U,
+                           "ADC: %0.2x:%0.2x:%0.2x", time.hour, time.minute, time.second);
+}
+
 void oled_task(void)
 {
-    (void)oled_fill_rect(0, 0, 127, 7, 0U);
-    (void)oled_fill_rect(0, 16, 47, 23, 0U);
-    oled_printf(0, 0, "uwTick: %u", systick_get_ms());
-    oled_printf(0, 16, "ADC:");
-    (void)oled_update_async();
+    oled_app_draw_tick();
+    oled_app_draw_status();
+    (void)oled_service();
 }

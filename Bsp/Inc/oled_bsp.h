@@ -7,11 +7,9 @@
 extern "C" {
 #endif
 
-uint8_t oled_bsp_iic_init(void);
-uint8_t oled_bsp_iic_deinit(void);
-uint8_t oled_bsp_iic_write(uint8_t addr, uint8_t control, uint8_t *buf, uint16_t len);
-void oled_bsp_delay_ms(uint32_t ms);
-void oled_bsp_debug_print(const char *const fmt, ...);
+uint8_t oled_bsp_init(void);
+uint8_t oled_bsp_deinit(void);
+uint8_t oled_bsp_write(uint8_t control, const uint8_t *buf, uint16_t len);
 
 #ifdef __cplusplus
 }

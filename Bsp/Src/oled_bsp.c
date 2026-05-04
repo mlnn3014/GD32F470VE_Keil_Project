@@ -4,10 +4,7 @@
 #include "gd32f4xx_dma.h"
 #include "gd32f4xx_gpio.h"
 #include "gd32f4xx_i2c.h"
-#include "systick.h"
 
-#include <stdarg.h>
-#include <stdio.h>
 #include <string.h>
 
 #define OLED_BSP_I2C_PERIPH       I2C0
@@ -226,7 +223,7 @@ static uint8_t oled_tx_finish_blocking(void)
     return res;
 }
 
-static uint8_t oled_dma_start(uint8_t addr, uint8_t control, uint8_t *buf, uint16_t len)
+static uint8_t oled_dma_start(uint8_t control, const uint8_t *buf, uint16_t len)
 {
     uint8_t res;
 
@@ -234,7 +231,7 @@ static uint8_t oled_dma_start(uint8_t addr, uint8_t control, uint8_t *buf, uint1
         return OLED_BSP_ERR;
     }
 
-    res = oled_prepare_i2c(addr);
+    res = oled_prepare_i2c(OLED_BSP_I2C_WRITE_ADDR);
     if (res != OLED_BSP_OK) {
         return res;
     }
@@ -259,7 +256,7 @@ static uint8_t oled_dma_start(uint8_t addr, uint8_t control, uint8_t *buf, uint1
     return OLED_BSP_OK;
 }
 
-uint8_t oled_bsp_iic_init(void)
+uint8_t oled_bsp_init(void)
 {
     dma_single_data_parameter_struct dma_init_struct;
 
@@ -297,7 +294,7 @@ uint8_t oled_bsp_iic_init(void)
     return OLED_BSP_OK;
 }
 
-uint8_t oled_bsp_iic_deinit(void)
+uint8_t oled_bsp_deinit(void)
 {
     oled_stop_i2c_dma();
     i2c_deinit(OLED_BSP_I2C_PERIPH);
@@ -305,11 +302,11 @@ uint8_t oled_bsp_iic_deinit(void)
     return OLED_BSP_OK;
 }
 
-uint8_t oled_bsp_iic_write(uint8_t addr, uint8_t control, uint8_t *buf, uint16_t len)
+uint8_t oled_bsp_write(uint8_t control, const uint8_t *buf, uint16_t len)
 {
     uint8_t res;
 
-    res = oled_dma_start(addr, control, buf, len);
+    res = oled_dma_start(control, buf, len);
     if (res != OLED_BSP_OK) {
         return res;
     }
@@ -325,18 +322,4 @@ uint8_t oled_bsp_iic_write(uint8_t addr, uint8_t control, uint8_t *buf, uint16_t
     dma_flag_clear(OLED_BSP_DMA_PERIPH, OLED_BSP_DMA_CH, DMA_FLAG_FTF);
 
     return oled_tx_finish_blocking();
-}
-
-void oled_bsp_delay_ms(uint32_t ms)
-{
-    delay_1ms(ms);
-}
-
-void oled_bsp_debug_print(const char *const fmt, ...)
-{
-    va_list args;
-
-    va_start(args, fmt);
-    (void)vprintf(fmt, args);
-    va_end(args);
 }

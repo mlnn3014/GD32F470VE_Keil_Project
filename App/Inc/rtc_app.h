@@ -1,9 +1,23 @@
-#ifndef __RTC_APP_H_
-#define __RTC_APP_H_
+#ifndef RTC_APP_H
+#define RTC_APP_H
 
 #include "stdint.h"
 
-// 原有函数声明
-void rtc_task(void);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#endif /* __ADC_APP_H_ */
+typedef struct {
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
+} rtc_time_t;
+
+void rtc_task(void);
+void rtc_app_get_time(rtc_time_t *time);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* RTC_APP_H */

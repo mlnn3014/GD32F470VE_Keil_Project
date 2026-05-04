@@ -1,7 +1,7 @@
-#ifndef __LED_APP_H__
-#define __LED_APP_H__
+#ifndef LED_APP_H
+#define LED_APP_H
 
-#include "stdint.h"
+#include <stdint.h>
 #include "led_bsp.h"
 
 #ifdef __cplusplus
@@ -21,4 +21,4 @@ void led_app_tick_1ms(void);
 }
 #endif
 
-#endif
+#endif /* LED_APP_H */
