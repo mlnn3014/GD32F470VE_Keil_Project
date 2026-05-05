@@ -1,4 +1,9 @@
-#include "main.h"
+#include "oled_app.h"
+
+#include "adc_app.h"
+#include "oled.h"
+#include "rtc_app.h"
+#include "systick.h"
 
 #define OLED_ROW_TICK 0U
 #define OLED_ROW_ADC  2U

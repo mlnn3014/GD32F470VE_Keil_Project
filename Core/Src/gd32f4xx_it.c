@@ -33,7 +33,6 @@ OF SUCH DAMAGE.
 */
 
 #include "gd32f4xx_it.h"
-#include "main.h"
 #include "systick.h"
 #include "led_app.h"
 #include "sdio_sdcard.h"

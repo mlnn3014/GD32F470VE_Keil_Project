@@ -1,5 +1,23 @@
 #include "main.h"
 
+#include "adc_app.h"
+#include "adc_bsp.h"
+#include "btn_app.h"
+#include "dac_app.h"
+#include "dac_bsp.h"
+#include "gd25qxx.h"
+#include "gd30_app.h"
+#include "gd30_bsp.h"
+#include "led_app.h"
+#include "oled.h"
+#include "rtc_app.h"
+#include "rtc_bsp.h"
+#include "scheduler.h"
+#include "sd_app.h"
+#include "systick.h"
+#include "usart_app.h"
+#include "usart_bsp.h"
+
 int main(void)
 {
     int rtc_init_result;
@@ -43,7 +61,7 @@ int main(void)
     rtc_app_init();
     uart_printf(DEBUG_USART, "BOOT: rtc done (%d, %s)\r\n", rtc_init_result, rtc_source_name());
 
-    sd_fatfs_init();
+    (void)sd_app_init();
     btn_app_init();
 
     uart_printf(DEBUG_USART, "BOOT: oled init...\r\n");
@@ -62,9 +80,9 @@ int main(void)
     uart_printf(DEBUG_USART, "BOOT: flash self test skipped (FLASH_SELF_TEST_ENABLE=0)\r\n");
 #endif
 #if SD_FATFS_DEMO_ENABLE
-    sd_fatfs_test();
+    (void)sd_self_test();
 #else
-    uart_printf(DEBUG_USART, "BOOT: sd_fatfs_test skipped (SD_FATFS_DEMO_ENABLE=0)\r\n");
+    uart_printf(DEBUG_USART, "BOOT: sd self test skipped (SD_FATFS_DEMO_ENABLE=0)\r\n");
 #endif
 
     scheduler_init();

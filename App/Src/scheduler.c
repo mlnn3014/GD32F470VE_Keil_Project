@@ -1,4 +1,13 @@
-#include "main.h"
+#include "scheduler.h"
+
+#include "adc_app.h"
+#include "btn_app.h"
+#include "dac_app.h"
+#include "gd30_app.h"
+#include "oled_app.h"
+#include "rtc_app.h"
+#include "systick.h"
+#include "usart_app.h"
 
 typedef struct {
     void (*run)(void);

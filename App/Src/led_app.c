@@ -1,4 +1,6 @@
-#include "main.h"
+#include "led_app.h"
+
+#include "gd32f4xx.h"
 
 typedef struct {
     uint8_t active;
