@@ -37,11 +37,7 @@ OF SUCH DAMAGE.
 #include "systick.h"
 #include "led_app.h"
 #include "sdio_sdcard.h"
-#include "string.h"
-
-extern uint8_t rxbuffer[512];
-extern uint8_t uart_dma_buffer[512];
-extern uint8_t rx_flag;
+#include "usart_bsp.h"
 
 /*!
     \brief      this function handles NMI exception
@@ -155,32 +151,12 @@ void PendSV_Handler(void)
 */
 void USART0_IRQHandler(void)
 {
-    uint32_t rx_len;
-    uint32_t copy_len;
+    uart_irq_handler();
+}
 
-    if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_IDLE)){
-        /* clear IDLE flag */
-        usart_data_receive(USART0);
-        dma_channel_disable(DMA1, DMA_CH2);
-        
-        /* number of data received */
-        rx_len = sizeof(rxbuffer) - dma_transfer_number_get(DMA1, DMA_CH2);
-        if((rx_len > 0U) && (rx_len <= sizeof(rxbuffer))){
-            copy_len = rx_len;
-            if(copy_len >= sizeof(uart_dma_buffer)){
-                copy_len = sizeof(uart_dma_buffer) - 1U;
-            }
-            memset(uart_dma_buffer, 0, sizeof(uart_dma_buffer));
-            memcpy(uart_dma_buffer, rxbuffer, copy_len);
-            rx_flag = 1;
-        }
-        memset(rxbuffer, 0, sizeof(rxbuffer));
-        
-        /* disable DMA and reconfigure */
-        dma_flag_clear(DMA1, DMA_CH2, DMA_FLAG_FTF);
-        dma_transfer_number_config(DMA1, DMA_CH2, sizeof(rxbuffer));
-        dma_channel_enable(DMA1, DMA_CH2);
-    }
+void DMA1_Channel7_IRQHandler(void)
+{
+    uart_tx_dma_irq_handler();
 }
 
 void SDIO_IRQHandler(void)

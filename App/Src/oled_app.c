@@ -1,23 +1,33 @@
 #include "mcu_cmic_gd32f470vet6.h"
 
-static void oled_app_draw_tick(void)
+#define OLED_ROW_TICK 0U
+#define OLED_ROW_ADC  2U
+#define OLED_ROW_TIME 3U
+
+static void oled_draw_tick(void)
 {
-    (void)oled_text_printf(OLED_FONT_8, 0U, 0U, 0U, "uwTick: %u", systick_get_ms());
+    (void)oled_text_printf(OLED_FONT_8, OLED_ROW_TICK, 0U, 0U, "uwTick: %u", systick_get_ms());
 }
 
-static void oled_app_draw_status(void)
+static void oled_draw_status(void)
 {
-    rtc_time_t time;
+    adc_data_t adc_data = adc_get_data();
+    rtc_time_t rtc_time = rtc_get_time();
 
-    rtc_app_get_time(&time);
-
-    (void)oled_text_printf(OLED_FONT_8, 2U, 0U, 0U,
-                           "ADC: %0.2x:%0.2x:%0.2x", time.hour, time.minute, time.second);
+    (void)oled_text_printf(OLED_FONT_8, OLED_ROW_ADC, 0U, 0U,
+                           "ADC:%4u %4umV",
+                           adc_data.sample,
+                           adc_data.millivolt);
+    (void)oled_text_printf(OLED_FONT_8, OLED_ROW_TIME, 0U, 0U,
+                           "TIME:%02u:%02u:%02u",
+                           rtc_time.hour,
+                           rtc_time.minute,
+                           rtc_time.second);
 }
 
 void oled_task(void)
 {
-    oled_app_draw_tick();
-    oled_app_draw_status();
+    oled_draw_tick();
+    oled_draw_status();
     (void)oled_service();
 }

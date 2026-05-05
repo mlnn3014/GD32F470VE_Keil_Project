@@ -1,39 +1,99 @@
-/* Licence
-* Company: MCUSTUDIO
-* Auther: Ahypnis.
-* Version: V0.10
-* Time: 2025/06/05
-* Note:
-*/
-#include "mcu_cmic_gd32f470vet6.h"
+#include "usart_app.h"
 
-__IO uint16_t tx_count = 0;
-__IO uint8_t rx_flag = 0;
-uint8_t uart_dma_buffer[512] = {0};
+#include <stdarg.h>
+#include <stdio.h>
 
-int my_printf(uint32_t usart_periph, const char *format, ...)
+#define USART_APP_PRINTF_BUFFER_SIZE 512U
+#define USART_APP_LINE_BUFFER_SIZE   128U
+#define USART_APP_READ_BUFFER_SIZE   64U
+
+static char uart_line[USART_APP_LINE_BUFFER_SIZE];
+static uint16_t uart_line_len;
+static uart_line_handler_t uart_line_handler;
+
+static void uart_default_line_handler(const char *line)
 {
-    char buffer[512];
+    uart_printf(DEBUG_USART, "CMD: %s\r\n", line);
+}
+
+static void uart_dispatch_line(void)
+{
+    if (uart_line_len == 0U) {
+        return;
+    }
+
+    uart_line[uart_line_len] = '\0';
+
+    if (uart_line_handler != 0) {
+        uart_line_handler(uart_line);
+    } else {
+        uart_default_line_handler(uart_line);
+    }
+
+    uart_line_len = 0U;
+}
+
+static void uart_receive_byte(uint8_t data)
+{
+    if ((data == '\r') || (data == '\n')) {
+        uart_dispatch_line();
+        return;
+    }
+
+    if (uart_line_len < (USART_APP_LINE_BUFFER_SIZE - 1U)) {
+        uart_line[uart_line_len] = (char)data;
+        uart_line_len++;
+    } else {
+        uart_line_len = 0U;
+        uart_printf(DEBUG_USART, "CMD too long\r\n");
+    }
+}
+
+int uart_printf(uint32_t uart, const char *format, ...)
+{
+    char buffer[USART_APP_PRINTF_BUFFER_SIZE];
     va_list arg;
     int len;
-    // Initialize variable argument list.
+
+    (void)uart;
+
     va_start(arg, format);
     len = vsnprintf(buffer, sizeof(buffer), format, arg);
     va_end(arg);
-    
-    for(tx_count = 0; tx_count < len; tx_count++){
-        usart_data_transmit(usart_periph, buffer[tx_count]);
-        while(RESET == usart_flag_get(usart_periph, USART_FLAG_TBE));
+
+    if (len <= 0) {
+        return len;
     }
-    
-    return len;
+
+    if ((uint32_t)len >= sizeof(buffer)) {
+        len = (int)(sizeof(buffer) - 1U);
+    }
+
+    return (int)uart_write((const uint8_t *)buffer, (uint16_t)len);
+}
+
+void uart_app_init(void)
+{
+    uart_line_len = 0U;
+    uart_line_handler = 0;
+}
+
+void uart_on_line(uart_line_handler_t handler)
+{
+    uart_line_handler = handler;
 }
 
 void uart_task(void)
 {
-    if(!rx_flag) return;
-    
-    my_printf(DEBUG_USART, "%s", uart_dma_buffer);
-    memset(uart_dma_buffer, 0, sizeof(uart_dma_buffer));
-    rx_flag = 0;
+    uint8_t buf[USART_APP_READ_BUFFER_SIZE];
+    uint16_t read_count;
+    uint16_t i;
+
+    uart_poll();
+    do {
+        read_count = uart_read(buf, USART_APP_READ_BUFFER_SIZE);
+        for (i = 0U; i < read_count; i++) {
+            uart_receive_byte(buf[i]);
+        }
+    } while (read_count == USART_APP_READ_BUFFER_SIZE);
 }

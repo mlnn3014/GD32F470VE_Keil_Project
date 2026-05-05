@@ -28,6 +28,9 @@ virtualFolder:
       folders: []
     - name: Bsp
       files:
+        - path: Bsp/Src/adc_bsp.c
+        - path: Bsp/Src/usart_bsp.c
+        - path: Bsp/Src/rtc_bsp.c
         - path: Bsp/Src/btn_bsp.c
         - path: Bsp/Src/led_bsp.c
         - path: Bsp/Src/oled_bsp.c

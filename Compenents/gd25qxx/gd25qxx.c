@@ -14,8 +14,7 @@
 #define DUMMY_BYTE 0xA5
 
 extern uint8_t spi1_send_array[ARRAYSIZE];    // SPI1 DMA 发送缓冲区
-extern uint8_t spi1_receive_array[ARRAYSIZE]; // SPI1 DMA 接收缓冲区
-
+extern uint8_t spi1_receive_array[ARRAYSIZE]; // SPI1 DMA 接收缓冲�?
 /**
  * @brief Initializes the SPI Flash chip.
  * @note This function assumes that the SPI2 peripheral and CS GPIO (PB12)
@@ -33,7 +32,7 @@ void spi_flash_init(void)
     
     /* 可选：读取 Flash ID 来验证通信是否正常 */
     // uint32_t id = spi_flash_read_id();
-    // 可以添加代码检查 ID 或打印用于调试
+    // Optional: check ID or print it for debug.
 }
 
 void spi_flash_sector_erase(uint32_t sector_addr)
@@ -213,16 +212,16 @@ void spi_flash_wait_for_write_end(void)
 }
 
 /**
- * @brief 使用 DMA 发送并接收一个字节
- * @param byte 要发送的字节
- * @return 从 SPI 总线接收到的字节
+ * @brief Transfer one byte with DMA.
+ * @param byte byte to send
+ * @return �?SPI 总线接收到的字节
  */
 uint8_t spi_flash_send_byte_dma(uint8_t byte)
 {
     /* 将数据放入发送缓冲区 */
     spi1_send_array[0] = byte;
     
-    /* 配置发送 DMA，只发送一个字节 */
+    /* 配置发�?DMA，只发送一个字�?*/
     dma_single_data_parameter_struct dma_init_struct;
     
     /* 配置 DMA 发送通道 */
@@ -232,7 +231,7 @@ uint8_t spi_flash_send_byte_dma(uint8_t byte)
     dma_init_struct.direction           = DMA_MEMORY_TO_PERIPH;
     dma_init_struct.periph_memory_width = DMA_PERIPH_WIDTH_8BIT;
     dma_init_struct.priority            = DMA_PRIORITY_HIGH;
-    dma_init_struct.number              = 1; /* 只发送一个字节 */
+    dma_init_struct.number              = 1; /* 只发送一个字�?*/
     dma_init_struct.periph_inc          = DMA_PERIPH_INCREASE_DISABLE;
     dma_init_struct.memory_inc          = DMA_MEMORY_INCREASE_ENABLE;
     dma_init_struct.circular_mode       = DMA_CIRCULAR_MODE_DISABLE;
@@ -252,7 +251,7 @@ uint8_t spi_flash_send_byte_dma(uint8_t byte)
     dma_channel_enable(DMA0, DMA_CH3);
     dma_channel_enable(DMA0, DMA_CH4);
     
-    /* 启用 SPI 的 DMA 接收和发送功能 */
+    /* 启用 SPI �?DMA 接收和发送功�?*/
     spi_dma_enable(SPI_FLASH, SPI_DMA_RECEIVE);
     spi_dma_enable(SPI_FLASH, SPI_DMA_TRANSMIT);
     
@@ -276,13 +275,13 @@ uint8_t spi_flash_send_byte_dma(uint8_t byte)
 /**
  * @brief 使用 DMA 发送并接收一个半字（16位数据）
  * @param half_word 要发送的半字
- * @return 从 SPI 总线接收到的半字
+ * @return �?SPI 总线接收到的半字
  */
 uint16_t spi_flash_send_halfword_dma(uint16_t half_word)
 {
     uint16_t rx_data;
     
-    /* 先发送高8位 */
+    /* 先发送高8�?*/
     spi1_send_array[0] = (uint8_t)(half_word >> 8);
     spi1_send_array[1] = (uint8_t)half_word;
     
@@ -296,7 +295,7 @@ uint16_t spi_flash_send_halfword_dma(uint16_t half_word)
     dma_init_struct.direction           = DMA_MEMORY_TO_PERIPH;
     dma_init_struct.periph_memory_width = DMA_PERIPH_WIDTH_8BIT;
     dma_init_struct.priority            = DMA_PRIORITY_HIGH;
-    dma_init_struct.number              = 2; /* 发送2个字节 */
+    dma_init_struct.number              = 2; /* 发�?个字�?*/
     dma_init_struct.periph_inc          = DMA_PERIPH_INCREASE_DISABLE;
     dma_init_struct.memory_inc          = DMA_MEMORY_INCREASE_ENABLE;
     dma_init_struct.circular_mode       = DMA_CIRCULAR_MODE_DISABLE;
@@ -316,7 +315,7 @@ uint16_t spi_flash_send_halfword_dma(uint16_t half_word)
     dma_channel_enable(DMA0, DMA_CH3);
     dma_channel_enable(DMA0, DMA_CH4);
     
-    /* 启用 SPI 的 DMA 接收和发送功能 */
+    /* 启用 SPI �?DMA 接收和发送功�?*/
     spi_dma_enable(SPI_FLASH, SPI_DMA_RECEIVE);
     spi_dma_enable(SPI_FLASH, SPI_DMA_TRANSMIT);
     
@@ -343,8 +342,7 @@ uint16_t spi_flash_send_halfword_dma(uint16_t half_word)
 /**
  * @brief 使用 DMA 发送和接收多个字节
  * @param tx_buffer 发送缓冲区
- * @param rx_buffer 接收缓冲区
- * @param size 传输大小
+ * @param rx_buffer 接收缓冲�? * @param size 传输大小
  */
 void spi_flash_transmit_receive_dma(uint8_t *tx_buffer, uint8_t *rx_buffer, uint16_t size)
 {
@@ -353,7 +351,7 @@ void spi_flash_transmit_receive_dma(uint8_t *tx_buffer, uint8_t *rx_buffer, uint
         size = ARRAYSIZE;
     }
     
-    /* 准备发送数据 */
+    /* 准备发送数�?*/
     for (uint16_t i = 0; i < size; i++) {
         spi1_send_array[i] = tx_buffer[i];
     }
@@ -388,7 +386,7 @@ void spi_flash_transmit_receive_dma(uint8_t *tx_buffer, uint8_t *rx_buffer, uint
     dma_channel_enable(DMA0, DMA_CH3);
     dma_channel_enable(DMA0, DMA_CH4);
     
-    /* 启用 SPI 的 DMA 接收和发送功能 */
+    /* 启用 SPI �?DMA 接收和发送功�?*/
     spi_dma_enable(SPI_FLASH, SPI_DMA_RECEIVE);
     spi_dma_enable(SPI_FLASH, SPI_DMA_TRANSMIT);
     
@@ -432,22 +430,22 @@ void test_spi_flash(void)
 
     uint32_t test_addr = 0x000000; // Test address, choose a sector start
 
-    my_printf(DEBUG_USART, "SPI FLASH Test Start\r\n");
+    uart_printf(DEBUG_USART, "SPI FLASH Test Start\r\n");
 
     // 1. Initialize SPI Flash driver (mainly CS pin state)
     spi_flash_init();
-    my_printf(DEBUG_USART, "SPI Flash Initialized.\r\n");
+    uart_printf(DEBUG_USART, "SPI Flash Initialized.\r\n");
 
     // 2. Read Flash ID
     flash_id = spi_flash_read_id();
-    my_printf(DEBUG_USART, "Flash ID: 0x%lX\r\n", flash_id);
+    uart_printf(DEBUG_USART, "Flash ID: 0x%lX\r\n", flash_id);
     // You can check the ID against your chip manual, e.g., GD25Q64 ID might be 0xC84017
 
     // 3. Erase a sector (typically 4KB)
     // Note: Erase operation takes time
-    my_printf(DEBUG_USART, "Erasing sector at address 0x%lX...\r\n", test_addr);
+    uart_printf(DEBUG_USART, "Erasing sector at address 0x%lX...\r\n", test_addr);
     spi_flash_sector_erase(test_addr);
-    my_printf(DEBUG_USART, "Sector erased.\r\n");
+    uart_printf(DEBUG_USART, "Sector erased.\r\n");
 
     // (Optional) Verify erase: read a page and check if all bytes are 0xFF
     spi_flash_buffer_read(read_buffer, test_addr, SPI_FLASH_PAGE_SIZE);
@@ -462,11 +460,11 @@ void test_spi_flash(void)
     }
     if (erased_check_ok)
     {
-        my_printf(DEBUG_USART, "Erase check PASSED. Sector is all 0xFF.\r\n");
+        uart_printf(DEBUG_USART, "Erase check PASSED. Sector is all 0xFF.\r\n");
     }
     else
     {
-        my_printf(DEBUG_USART, "Erase check FAILED.\r\n");
+        uart_printf(DEBUG_USART, "Erase check FAILED.\r\n");
     }
 
     // 4. Prepare data to write (one page)
@@ -480,31 +478,31 @@ void test_spi_flash(void)
     memcpy(write_buffer, message, data_len);
     write_buffer[data_len] = '\0'; // Ensure string termination
 
-    my_printf(DEBUG_USART, "Writing data to address 0x%lX: \"%s\"\r\n", test_addr, write_buffer);
+    uart_printf(DEBUG_USART, "Writing data to address 0x%lX: \"%s\"\r\n", test_addr, write_buffer);
     // Use spi_flash_buffer_write (can handle cross-page, but here we're writing within one page)
     // Or use spi_flash_page_write directly if certain it's within one page
     spi_flash_buffer_write(write_buffer, test_addr, SPI_FLASH_PAGE_SIZE); // Write entire page with padding
-    my_printf(DEBUG_USART, "Data written.\r\n");
+    uart_printf(DEBUG_USART, "Data written.\r\n");
 
     // 5. Read back the written data
-    my_printf(DEBUG_USART, "Reading data from address 0x%lX...\r\n", test_addr);
+    uart_printf(DEBUG_USART, "Reading data from address 0x%lX...\r\n", test_addr);
     memset(read_buffer, 0x00, SPI_FLASH_PAGE_SIZE);
     spi_flash_buffer_read(read_buffer, test_addr, SPI_FLASH_PAGE_SIZE);
 //    spi_flash_buffer_read(read_2_buffer, test_addr, SPI_FLASH_PAGE_SIZE + 1);
-    my_printf(DEBUG_USART, "Data read: \"%.*s\"\r\n", SPI_FLASH_PAGE_SIZE, read_buffer);
-//    my_printf(&huart1, "write_buffer \"%p\"\r\n", (void *)write_buffer);
-//    my_printf(&huart1, "read_buffer \"%p\"\r\n", (void *)read_buffer);
+    uart_printf(DEBUG_USART, "Data read: \"%.*s\"\r\n", SPI_FLASH_PAGE_SIZE, read_buffer);
+//    uart_printf(&huart1, "write_buffer \"%p\"\r\n", (void *)write_buffer);
+//    uart_printf(&huart1, "read_buffer \"%p\"\r\n", (void *)read_buffer);
     // 6. Verify data
     if (memcmp(write_buffer, read_buffer, SPI_FLASH_PAGE_SIZE) == 0)
     {
-        my_printf(DEBUG_USART, "Data VERIFIED! Write and Read successful.\r\n");
+        uart_printf(DEBUG_USART, "Data VERIFIED! Write and Read successful.\r\n");
     }
     else
     {
-        my_printf(DEBUG_USART, "Data VERIFICATION FAILED!\r\n");
+        uart_printf(DEBUG_USART, "Data VERIFICATION FAILED!\r\n");
     }
 
-    my_printf(DEBUG_USART, "SPI FLASH Test End\r\n");
+    uart_printf(DEBUG_USART, "SPI FLASH Test End\r\n");
 }
 
 

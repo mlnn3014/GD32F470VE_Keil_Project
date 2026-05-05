@@ -1,9 +1,23 @@
-#ifndef __ADC_APP_H_
-#define __ADC_APP_H_
+#ifndef ADC_APP_H
+#define ADC_APP_H
 
-#include "stdint.h"
+#include <stdint.h>
 
-// 原有函数声明
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct {
+    uint16_t sample;
+    uint16_t millivolt;
+} adc_data_t;
+
+void adc_app_init(void);
 void adc_task(void);
+adc_data_t adc_get_data(void);
 
-#endif /* __ADC_APP_H_ */
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ADC_APP_H */

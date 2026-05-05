@@ -7,9 +7,9 @@
 extern "C" {
 #endif
 
-uint8_t oled_bsp_init(void);
-uint8_t oled_bsp_deinit(void);
-uint8_t oled_bsp_write(uint8_t control, const uint8_t *buf, uint16_t len);
+uint8_t oled_bus_init(void);
+uint8_t oled_bus_deinit(void);
+uint8_t oled_bus_write(uint8_t control, const uint8_t *buf, uint16_t len);
 
 #ifdef __cplusplus
 }

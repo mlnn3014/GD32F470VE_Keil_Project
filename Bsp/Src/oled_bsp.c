@@ -256,7 +256,7 @@ static uint8_t oled_dma_start(uint8_t control, const uint8_t *buf, uint16_t len)
     return OLED_BSP_OK;
 }
 
-uint8_t oled_bsp_init(void)
+uint8_t oled_bus_init(void)
 {
     dma_single_data_parameter_struct dma_init_struct;
 
@@ -294,7 +294,7 @@ uint8_t oled_bsp_init(void)
     return OLED_BSP_OK;
 }
 
-uint8_t oled_bsp_deinit(void)
+uint8_t oled_bus_deinit(void)
 {
     oled_stop_i2c_dma();
     i2c_deinit(OLED_BSP_I2C_PERIPH);
@@ -302,7 +302,7 @@ uint8_t oled_bsp_deinit(void)
     return OLED_BSP_OK;
 }
 
-uint8_t oled_bsp_write(uint8_t control, const uint8_t *buf, uint16_t len)
+uint8_t oled_bus_write(uint8_t control, const uint8_t *buf, uint16_t len)
 {
     uint8_t res;
 

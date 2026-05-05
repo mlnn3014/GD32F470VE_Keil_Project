@@ -86,7 +86,7 @@ static uint8_t oled_write_cmds(const uint8_t *cmds, uint8_t len)
         return OLED_ERR;
     }
 
-    return oled_bsp_write(0x00U, cmds, len);
+    return oled_bus_write(0x00U, cmds, len);
 }
 
 static uint8_t oled_write_cmd(uint8_t cmd)
@@ -232,14 +232,14 @@ static uint8_t oled_flush_window(uint8_t start_page, uint8_t end_page)
     uint16_t len;
 
     oled_prepare_window_cmd(start_page, end_page);
-    res = oled_bsp_write(0x00U, oled_cmd_buf, 6U);
+    res = oled_bus_write(0x00U, oled_cmd_buf, 6U);
     if (res != OLED_OK) {
         return res;
     }
 
     len = oled_prepare_window_data(start_page, end_page);
 
-    return oled_bsp_write(0x40U, oled_data_buf, len);
+    return oled_bus_write(0x40U, oled_data_buf, len);
 }
 
 static uint8_t oled_update_dirty_sync(void)
@@ -322,7 +322,7 @@ uint8_t oled_init(void)
 {
     uint8_t res;
 
-    res = oled_bsp_init();
+    res = oled_bus_init();
     if (res != OLED_OK) {
         return res;
     }
@@ -353,7 +353,7 @@ uint8_t oled_deinit(void)
 
     (void)oled_wait_ready(OLED_SYNC_TIMEOUT_MS);
     (void)oled_write_cmd(0xAEU);
-    res = oled_bsp_deinit();
+    res = oled_bus_deinit();
     oled_inited = 0U;
     oled_dirty_pages = 0U;
     oled_busy = 0U;

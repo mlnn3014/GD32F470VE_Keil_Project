@@ -340,7 +340,7 @@
               <MiscControls></MiscControls>
               <Define>USE_STDPERIPH_DRIVER,GD32F470,__PERF_COUNTER_CFG_USE_SYSTICK_WRAPPER__</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Core\Inc;..\App\Inc;..\Bsp\Inc;..\Compenents\bsp;..\Compenents\gd30ad3344;..\Compenents\oled;..\Compenents\gd25qxx;..\Compenents\button;..\Compenents\sdio;..\Compenents\fatfs;..\Firmware\GD32F4xx_standard_peripheral\Include;..\Firmware\CMSIS_5\CMSIS\Core\Include;..\Firmware\CMSIS;..\Firmware\CMSIS\GD\GD32F4xx\Include</IncludePath>
+              <IncludePath>..\Core\Inc;..\App\Inc;..\Bsp\Inc;..\Compenents\bsp;..\Compenents\gd30ad3344;..\Compenents\oled;..\Compenents\gd25qxx;..\Compenents\button;..\Compenents\sdio;..\Compenents\fatfs;..\Compenents\ring_buffer;..\Firmware\GD32F4xx_standard_peripheral\Include;..\Firmware\CMSIS_5\CMSIS\Core\Include;..\Firmware\CMSIS;..\Firmware\CMSIS\GD\GD32F4xx\Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -388,6 +388,11 @@
               <FileName>adc_app.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\App\Src\adc_app.c</FilePath>
+            </File>
+            <File>
+              <FileName>dac_app.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\Src\dac_app.c</FilePath>
             </File>
             <File>
               <FileName>btn_app.c</FileName>
@@ -454,6 +459,26 @@
         <Group>
           <GroupName>Bsp</GroupName>
           <Files>
+            <File>
+              <FileName>adc_bsp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Bsp\Src\adc_bsp.c</FilePath>
+            </File>
+            <File>
+              <FileName>dac_bsp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Bsp\Src\dac_bsp.c</FilePath>
+            </File>
+            <File>
+              <FileName>usart_bsp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Bsp\Src\usart_bsp.c</FilePath>
+            </File>
+            <File>
+              <FileName>rtc_bsp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Bsp\Src\rtc_bsp.c</FilePath>
+            </File>
             <File>
               <FileName>btn_bsp.c</FileName>
               <FileType>1</FileType>
@@ -543,6 +568,16 @@
               <FileName>sdio_sdcard.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Compenents\sdio\sdio_sdcard.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Components/ring_buffer</GroupName>
+          <Files>
+            <File>
+              <FileName>ring_buffer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Compenents\ring_buffer\ring_buffer.c</FilePath>
             </File>
           </Files>
         </Group>
