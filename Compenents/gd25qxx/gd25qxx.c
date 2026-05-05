@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "flash_bsp.h"
+#include "systick.h"
 #include "usart_app.h"
 
 #define FLASH_CMD_WRITE          0x02U
@@ -19,14 +20,20 @@
 #define FLASH_ID_GD25Q32         0xC84016U
 #define FLASH_ID_GD25Q64         0xC84017U
 #define FLASH_ID_GD25Q128        0xC84018U
+#define FLASH_WRITE_TIMEOUT_MS   10U
+#define FLASH_SECTOR_TIMEOUT_MS  1000U
+#define FLASH_CHIP_TIMEOUT_MS    60000U
 
 static flash_info_t flash_info;
 
-static void flash_write_enable(void)
+static int flash_write_enable(void)
 {
+    flash_bus_clear_error();
     flash_bus_select();
     (void)flash_bus_transfer(FLASH_CMD_WRITE_ENABLE);
     flash_bus_deselect();
+
+    return (flash_bus_ok() != 0U) ? 0 : -2;
 }
 
 static void flash_send_addr(uint32_t addr)
@@ -78,7 +85,9 @@ static int flash_page_write(uint32_t addr, const uint8_t *data, uint32_t len)
         return -1;
     }
 
-    flash_write_enable();
+    if (flash_write_enable() != 0) {
+        return -2;
+    }
 
     flash_bus_select();
     (void)flash_bus_transfer(FLASH_CMD_WRITE);
@@ -86,8 +95,11 @@ static int flash_page_write(uint32_t addr, const uint8_t *data, uint32_t len)
     flash_bus_write(data, len);
     flash_bus_deselect();
 
-    flash_wait_idle();
-    return 0;
+    if (flash_bus_ok() == 0U) {
+        return -2;
+    }
+
+    return flash_wait_idle(FLASH_WRITE_TIMEOUT_MS);
 }
 
 int flash_init(void)
@@ -116,6 +128,7 @@ uint32_t flash_read_id(void)
     uint32_t id1;
     uint32_t id2;
 
+    flash_bus_clear_error();
     flash_bus_select();
     (void)flash_bus_transfer(FLASH_CMD_READ_ID);
     id0 = flash_bus_transfer(FLASH_DUMMY_BYTE);
@@ -130,6 +143,7 @@ uint8_t flash_read_status(void)
 {
     uint8_t status;
 
+    flash_bus_clear_error();
     flash_bus_select();
     (void)flash_bus_transfer(FLASH_CMD_READ_STATUS);
     status = flash_bus_transfer(FLASH_DUMMY_BYTE);
@@ -138,10 +152,25 @@ uint8_t flash_read_status(void)
     return status;
 }
 
-void flash_wait_idle(void)
+int flash_wait_idle(uint32_t timeout_ms)
 {
-    while ((flash_read_status() & FLASH_STATUS_BUSY) != 0U) {
-    }
+    uint32_t start = systick_get_ms();
+    uint8_t status;
+
+    do {
+        status = flash_read_status();
+        if (flash_bus_ok() == 0U) {
+            return -2;
+        }
+        if ((status & FLASH_STATUS_BUSY) == 0U) {
+            return 0;
+        }
+        if ((uint32_t)(systick_get_ms() - start) >= timeout_ms) {
+            return -1;
+        }
+    } while ((status & FLASH_STATUS_BUSY) != 0U);
+
+    return 0;
 }
 
 int flash_read(uint32_t addr, uint8_t *data, uint32_t len)
@@ -153,13 +182,14 @@ int flash_read(uint32_t addr, uint8_t *data, uint32_t len)
         return 0;
     }
 
+    flash_bus_clear_error();
     flash_bus_select();
     (void)flash_bus_transfer(FLASH_CMD_READ);
     flash_send_addr(addr);
     flash_bus_read(data, len);
     flash_bus_deselect();
 
-    return 0;
+    return (flash_bus_ok() != 0U) ? 0 : -2;
 }
 
 int flash_write(uint32_t addr, const uint8_t *data, uint32_t len)
@@ -201,15 +231,20 @@ int flash_erase_sector(uint32_t addr)
         return -1;
     }
 
-    flash_write_enable();
+    if (flash_write_enable() != 0) {
+        return -2;
+    }
 
     flash_bus_select();
     (void)flash_bus_transfer(FLASH_CMD_SECTOR_ERASE);
     flash_send_addr(sector_addr);
     flash_bus_deselect();
 
-    flash_wait_idle();
-    return 0;
+    if (flash_bus_ok() == 0U) {
+        return -2;
+    }
+
+    return flash_wait_idle(FLASH_SECTOR_TIMEOUT_MS);
 }
 
 int flash_erase_chip(void)
@@ -218,14 +253,19 @@ int flash_erase_chip(void)
         return -1;
     }
 
-    flash_write_enable();
+    if (flash_write_enable() != 0) {
+        return -2;
+    }
 
     flash_bus_select();
     (void)flash_bus_transfer(FLASH_CMD_CHIP_ERASE);
     flash_bus_deselect();
 
-    flash_wait_idle();
-    return 0;
+    if (flash_bus_ok() == 0U) {
+        return -2;
+    }
+
+    return flash_wait_idle(FLASH_CHIP_TIMEOUT_MS);
 }
 
 flash_info_t flash_get_info(void)

@@ -40,5 +40,3 @@ OF SUCH DAMAGE.
 #include <stdio.h>
 
 #endif /* __MAIN_H */
-
-

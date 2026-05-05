@@ -11,7 +11,7 @@
 
 static void oled_draw_tick(void)
 {
-    (void)oled_text_printf(OLED_FONT_8, OLED_ROW_TICK, 0U, 0U, "uwTick: %u", systick_get_ms());
+    (void)oled_text_printf(OLED_FONT_8, OLED_ROW_TICK, 0U, 0U, "uwTick:%u", systick_get_ms());
 }
 
 static void oled_draw_status(void)

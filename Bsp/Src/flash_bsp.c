@@ -9,6 +9,23 @@
 #define FLASH_PIN_MISO         GPIO_PIN_14
 #define FLASH_PIN_MOSI         GPIO_PIN_15
 #define FLASH_DUMMY_BYTE       0xA5U
+#define FLASH_SPI_TIMEOUT      100000U
+
+static uint8_t flash_bus_error;
+
+static uint8_t flash_wait_flag(uint32_t flag, FlagStatus state)
+{
+    uint32_t timeout = FLASH_SPI_TIMEOUT;
+
+    while (spi_i2s_flag_get(FLASH_SPI, flag) != state) {
+        if (--timeout == 0U) {
+            flash_bus_error = 1U;
+            return 0U;
+        }
+    }
+
+    return 1U;
+}
 
 void flash_bus_init(void)
 {
@@ -37,6 +54,7 @@ void flash_bus_init(void)
     spi_init_struct.endian = SPI_ENDIAN_MSB;
     spi_init(FLASH_SPI, &spi_init_struct);
     spi_enable(FLASH_SPI);
+    flash_bus_clear_error();
 }
 
 void flash_bus_select(void)
@@ -51,10 +69,12 @@ void flash_bus_deselect(void)
 
 uint8_t flash_bus_transfer(uint8_t data)
 {
-    while (RESET == spi_i2s_flag_get(FLASH_SPI, SPI_FLAG_TBE)) {
+    if (flash_wait_flag(SPI_FLAG_TBE, SET) == 0U) {
+        return 0U;
     }
     spi_i2s_data_transmit(FLASH_SPI, data);
-    while (RESET == spi_i2s_flag_get(FLASH_SPI, SPI_FLAG_RBNE)) {
+    if (flash_wait_flag(SPI_FLAG_RBNE, SET) == 0U) {
+        return 0U;
     }
     return (uint8_t)spi_i2s_data_receive(FLASH_SPI);
 }
@@ -72,9 +92,21 @@ void flash_bus_write(const uint8_t *data, uint32_t len)
 {
     while (len > 0U) {
         (void)flash_bus_transfer(*data);
+        if (flash_bus_ok() == 0U) {
+            return;
+        }
         data++;
         len--;
     }
-    while (SET == spi_i2s_flag_get(FLASH_SPI, SPI_FLAG_TRANS)) {
-    }
+    (void)flash_wait_flag(SPI_FLAG_TRANS, RESET);
+}
+
+uint8_t flash_bus_ok(void)
+{
+    return (flash_bus_error == 0U) ? 1U : 0U;
+}
+
+void flash_bus_clear_error(void)
+{
+    flash_bus_error = 0U;
 }

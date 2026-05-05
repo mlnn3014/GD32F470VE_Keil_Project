@@ -26,7 +26,7 @@ typedef struct {
 int flash_init(void);
 uint32_t flash_read_id(void);
 uint8_t flash_read_status(void);
-void flash_wait_idle(void);
+int flash_wait_idle(uint32_t timeout_ms);
 int flash_read(uint32_t addr, uint8_t *data, uint32_t len);
 int flash_write(uint32_t addr, const uint8_t *data, uint32_t len);
 int flash_erase_sector(uint32_t addr);

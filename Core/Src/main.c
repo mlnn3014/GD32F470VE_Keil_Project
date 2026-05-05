@@ -22,6 +22,7 @@ int main(void)
 {
     int rtc_init_result;
     int flash_init_result;
+    uint8_t oled_ready = 0U;
     flash_info_t flash_info;
 
     systick_config();
@@ -61,11 +62,13 @@ int main(void)
     rtc_app_init();
     uart_printf(DEBUG_USART, "BOOT: rtc done (%d, %s)\r\n", rtc_init_result, rtc_source_name());
 
+    delay_1ms(200U);
     (void)sd_app_init();
     btn_app_init();
 
     uart_printf(DEBUG_USART, "BOOT: oled init...\r\n");
     if (oled_init() == 0U) {
+        oled_ready = 1U;
         uart_printf(DEBUG_USART, "BOOT: oled done\r\n");
         oled_clear();
         oled_text_show(OLED_FONT_8, 0U, 0U, 0U, "BOOT: start");
@@ -84,6 +87,11 @@ int main(void)
 #else
     uart_printf(DEBUG_USART, "BOOT: sd self test skipped (SD_FATFS_DEMO_ENABLE=0)\r\n");
 #endif
+    if (oled_ready != 0U) {
+        oled_clear();
+        oled_text_show(OLED_FONT_8, 0U, 0U, 0U, "BOOT: start");
+        (void)oled_update();
+    }
 
     scheduler_init();
     while(1) {

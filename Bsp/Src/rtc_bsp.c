@@ -190,15 +190,41 @@ static void rtc_parameter_to_datetime(const rtc_parameter_struct *param,
 static int rtc_write_datetime(const rtc_datetime_t *datetime)
 {
     rtc_parameter_struct init;
+    uint32_t rtc_time;
+    uint32_t rtc_date;
 
     if (rtc_datetime_valid(datetime) == 0U) {
         return -1;
     }
 
     rtc_datetime_to_parameter(datetime, &init);
+    rtc_time = init.am_pm |
+               TIME_HR(init.hour) |
+               TIME_MN(init.minute) |
+               TIME_SC(init.second);
+    rtc_date = DATE_YR(init.year) |
+               DATE_DOW(init.day_of_week) |
+               DATE_MON(init.month) |
+               DATE_DAY(init.date);
 
-    if (rtc_init(&init) == ERROR) {
+    RTC_WPK = RTC_UNLOCK_KEY1;
+    RTC_WPK = RTC_UNLOCK_KEY2;
+
+    if (rtc_init_mode_enter() == ERROR) {
+        RTC_WPK = RTC_LOCK_KEY;
         return -2;
+    }
+
+    RTC_PSC = (uint32_t)(PSC_FACTOR_A(init.factor_asyn) | PSC_FACTOR_S(init.factor_syn));
+    RTC_TIME = rtc_time;
+    RTC_DATE = rtc_date;
+    RTC_CTL &= (uint32_t)(~RTC_CTL_CS);
+    RTC_CTL |= init.display_format;
+    rtc_init_mode_exit();
+    RTC_WPK = RTC_LOCK_KEY;
+
+    if (rtc_register_sync_wait() == ERROR) {
+        rtc_bypass_shadow_enable();
     }
 
     RTC_BKP0 = RTC_BSP_BACKUP_VALUE;
@@ -321,7 +347,7 @@ int rtc_clock_init(void)
         if (ret == 0) {
             ret = rtc_setup_time();
             if (ret != 0) {
-                ret = -3;
+                ret -= 30;
             }
         }
     }

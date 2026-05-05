@@ -68,13 +68,13 @@ static uint8_t oled_text_to_rect(uint8_t font, uint8_t row, uint8_t col, uint8_t
         return OLED_ERR;
     }
 
-    if ((cols == 0U) || (cols > (uint8_t)(info.cols - col))) {
-        cols = (uint8_t)(info.cols - col);
-    }
-
     *x = (uint8_t)(col * info.char_w);
     *y = (uint8_t)(row * info.char_h);
-    *w = (uint8_t)(cols * info.char_w);
+    if ((cols == 0U) || (cols > (uint8_t)(info.cols - col))) {
+        *w = (uint8_t)(OLED_WIDTH - *x);
+    } else {
+        *w = (uint8_t)(cols * info.char_w);
+    }
     *h = info.char_h;
 
     return OLED_OK;

@@ -12,8 +12,11 @@
 
 #define SD_DRIVE_NUM             0U
 #define SD_MOUNT_RETRY_COUNT     5U
+#define SD_PATH_BUFFER_SIZE      128U
 #define SD_SELF_TEST_PATH        "0:/FATFS.TXT"
 #define SD_SELF_TEST_LONG_PATH   "0:/project_log_2026_04_22_device_gd32f470vet6_board_a_channel_01_run_0001_data_record_long_name_demo.txt"
+#define SD_SELF_TEST_DIR         "0:/test/log"
+#define SD_SELF_TEST_DIR_PATH    "0:/test/log/sd_test.txt"
 
 static FATFS sd_fs;
 static uint8_t sd_mounted;
@@ -67,6 +70,86 @@ uint8_t sd_is_mounted(void)
     return sd_mounted;
 }
 
+int sd_mkdir(const char *path)
+{
+    FRESULT result;
+    FILINFO info;
+    int mount_result;
+
+    if ((NULL == path) || (path[0] == '\0')) {
+        return -1;
+    }
+
+    mount_result = sd_mount();
+    if (mount_result != 0) {
+        return mount_result;
+    }
+
+    result = f_mkdir(path);
+    if (FR_OK == result) {
+        return 0;
+    }
+
+    if (FR_EXIST != result) {
+        return sd_result(result);
+    }
+
+    result = f_stat(path, &info);
+    if ((FR_OK == result) && ((info.fattrib & AM_DIR) != 0U)) {
+        return 0;
+    }
+
+    return (FR_OK == result) ? -1 : sd_result(result);
+}
+
+int sd_mkdirs(const char *path)
+{
+    char temp[SD_PATH_BUFFER_SIZE];
+    uint32_t len;
+    uint32_t i;
+    int result;
+
+    if ((NULL == path) || (path[0] == '\0')) {
+        return -1;
+    }
+
+    len = (uint32_t)strlen(path);
+    if ((len == 0U) || (len >= SD_PATH_BUFFER_SIZE)) {
+        return -1;
+    }
+
+    (void)memcpy(temp, path, len + 1U);
+
+    for (i = 0U; i < len; i++) {
+        if (temp[i] == '\\') {
+            temp[i] = '/';
+        }
+    }
+
+    for (i = 0U; i < len; i++) {
+        if (temp[i] != '/') {
+            continue;
+        }
+
+        if ((i == 0U) || (temp[i - 1U] == ':')) {
+            continue;
+        }
+
+        temp[i] = '\0';
+        result = sd_mkdir(temp);
+        temp[i] = '/';
+        if (result != 0) {
+            return result;
+        }
+    }
+
+    if ((len > 0U) && (temp[len - 1U] == '/')) {
+        temp[len - 1U] = '\0';
+    }
+
+    return sd_mkdir(temp);
+}
+
 int sd_write_file(const char *path, const void *data, uint32_t len)
 {
     FIL file;
@@ -100,37 +183,20 @@ int sd_write_file(const char *path, const void *data, uint32_t len)
 
 int sd_append_file(const char *path, const void *data, uint32_t len)
 {
-    FIL file;
-    FRESULT result;
-    UINT written = 0U;
-    int mount_result;
+    sd_file_t file;
+    int result;
 
     if ((NULL == path) || ((NULL == data) && (len != 0U))) {
         return -1;
     }
 
-    mount_result = sd_mount();
-    if (mount_result != 0) {
-        return mount_result;
+    result = sd_file_open(&file, path, 1U);
+    if (result == 0) {
+        result = sd_file_write(&file, data, len);
     }
 
-    result = f_open(&file, path, FA_OPEN_ALWAYS | FA_WRITE);
-    if (FR_OK != result) {
-        return sd_result(result);
-    }
-
-    result = f_lseek(&file, f_size(&file));
-    if (FR_OK == result) {
-        result = f_write(&file, data, (UINT)len, &written);
-    }
-
-    (void)f_close(&file);
-
-    if (FR_OK != result) {
-        return sd_result(result);
-    }
-
-    return (written == (UINT)len) ? 0 : -1;
+    (void)sd_file_close(&file);
+    return result;
 }
 
 int sd_read_file(const char *path, void *data, uint32_t size, uint32_t *read_len)
@@ -164,6 +230,91 @@ int sd_read_file(const char *path, void *data, uint32_t size, uint32_t *read_len
     if (NULL != read_len) {
         *read_len = (uint32_t)read_count;
     }
+
+    return sd_result(result);
+}
+
+int sd_file_open(sd_file_t *file, const char *path, uint8_t append)
+{
+    FRESULT result;
+    int mount_result;
+
+    if ((NULL == file) || (NULL == path) || (path[0] == '\0')) {
+        return -1;
+    }
+
+    file->opened = 0U;
+
+    mount_result = sd_mount();
+    if (mount_result != 0) {
+        return mount_result;
+    }
+
+    result = f_open(&file->handle, path, FA_OPEN_ALWAYS | FA_WRITE);
+    if (FR_OK != result) {
+        return sd_result(result);
+    }
+
+    file->opened = 1U;
+
+    if (append != 0U) {
+        result = f_lseek(&file->handle, f_size(&file->handle));
+    } else {
+        result = f_lseek(&file->handle, 0U);
+        if (FR_OK == result) {
+            result = f_truncate(&file->handle);
+        }
+    }
+
+    if (FR_OK != result) {
+        (void)sd_file_close(file);
+        return sd_result(result);
+    }
+
+    return 0;
+}
+
+int sd_file_write(sd_file_t *file, const void *data, uint32_t len)
+{
+    FRESULT result;
+    UINT written = 0U;
+
+    if ((NULL == file) || (file->opened == 0U) ||
+        ((NULL == data) && (len != 0U))) {
+        return -1;
+    }
+
+    result = f_write(&file->handle, data, (UINT)len, &written);
+    if (FR_OK != result) {
+        return sd_result(result);
+    }
+
+    return (written == (UINT)len) ? 0 : -1;
+}
+
+int sd_file_sync(sd_file_t *file)
+{
+    if ((NULL == file) || (file->opened == 0U)) {
+        return -1;
+    }
+
+    return sd_result(f_sync(&file->handle));
+}
+
+int sd_file_close(sd_file_t *file)
+{
+    FRESULT result;
+
+    if (NULL == file) {
+        return -1;
+    }
+
+    if (file->opened == 0U) {
+        return 0;
+    }
+
+    result = f_close(&file->handle);
+    file->opened = 0U;
 
     return sd_result(result);
 }
@@ -268,6 +419,18 @@ int sd_self_test(void)
     result = sd_self_test_file(SD_SELF_TEST_LONG_PATH, "FATFS_LONG_NAME_OK");
     if (result != 0) {
         uart_printf(DEBUG_USART, "SD: long-name test failed (%d)\r\n", result);
+        return result;
+    }
+
+    result = sd_mkdirs(SD_SELF_TEST_DIR);
+    if (result != 0) {
+        uart_printf(DEBUG_USART, "SD: mkdir test failed (%d)\r\n", result);
+        return result;
+    }
+
+    result = sd_self_test_file(SD_SELF_TEST_DIR_PATH, "SD_DIR_TEST_OK");
+    if (result != 0) {
+        uart_printf(DEBUG_USART, "SD: dir file test failed (%d)\r\n", result);
         return result;
     }
 
