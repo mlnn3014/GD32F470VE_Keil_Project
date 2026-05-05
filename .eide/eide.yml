@@ -29,6 +29,7 @@ virtualFolder:
     - name: Bsp
       files:
         - path: Bsp/Src/adc_bsp.c
+        - path: Bsp/Src/flash_bsp.c
         - path: Bsp/Src/usart_bsp.c
         - path: Bsp/Src/rtc_bsp.c
         - path: Bsp/Src/btn_bsp.c
@@ -45,9 +46,6 @@ virtualFolder:
         - name: gd25qxx
           files:
             - path: Compenents/gd25qxx/gd25qxx.c
-            - path: Compenents/gd25qxx/lfs.c
-            - path: Compenents/gd25qxx/lfs_port.c
-            - path: Compenents/gd25qxx/lfs_util.c
           folders: []
         - name: gd30ad3344
           files:

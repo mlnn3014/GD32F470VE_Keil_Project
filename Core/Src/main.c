@@ -3,15 +3,25 @@
 int main(void)
 {
     int rtc_init_result;
+    int flash_init_result;
+    flash_info_t flash_info;
 
     systick_config();
 
     led_app_init();
-    bsp_gd25qxx_init();
     uart_init();
     uart_app_init();
 
     uart_printf(DEBUG_USART, "BOOT: start\r\n");
+
+    uart_printf(DEBUG_USART, "BOOT: flash init...\r\n");
+    flash_init_result = flash_init();
+    flash_info = flash_get_info();
+    uart_printf(DEBUG_USART,
+                "BOOT: flash done (%d, id=0x%06lX, size=%lu)\r\n",
+                flash_init_result,
+                flash_info.id,
+                flash_info.size);
 
     uart_printf(DEBUG_USART, "BOOT: gd30 init...\r\n");
     bsp_gd30ad3344_init();
@@ -45,7 +55,11 @@ int main(void)
         uart_printf(DEBUG_USART, "BOOT: oled failed\r\n");
     }
 
-    test_spi_flash();
+#if FLASH_SELF_TEST_ENABLE
+    (void)flash_self_test(0U);
+#else
+    uart_printf(DEBUG_USART, "BOOT: flash self test skipped (FLASH_SELF_TEST_ENABLE=0)\r\n");
+#endif
 #if SD_FATFS_DEMO_ENABLE
     sd_fatfs_test();
 #else

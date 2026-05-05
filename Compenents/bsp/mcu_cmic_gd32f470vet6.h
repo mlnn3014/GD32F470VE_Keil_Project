@@ -14,6 +14,7 @@
 #include "systick.h"
 #include "adc_bsp.h"
 #include "dac_bsp.h"
+#include "flash_bsp.h"
 #include "rtc_bsp.h"
 #include "usart_bsp.h"
 #include "led_bsp.h"
@@ -47,21 +48,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* gd25qxx */
-
-#define SPI_PORT              GPIOB
-#define SPI_CLK_PORT          RCU_GPIOB
-
-#define SPI_NSS               GPIO_PIN_12
-#define SPI_SCK               GPIO_PIN_13
-#define SPI_MISO              GPIO_PIN_14
-#define SPI_MOSI              GPIO_PIN_15
-
-// FUNCTION
-void bsp_gd25qxx_init(void);
-
-/***************************************************************************************************************/
-
 /* gd30ad3344 */
 
 #define SPI3_PORT              GPIOE

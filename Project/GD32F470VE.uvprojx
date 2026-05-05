@@ -494,6 +494,11 @@
               <FileType>1</FileType>
               <FilePath>..\Bsp\Src\oled_bsp.c</FilePath>
             </File>
+            <File>
+              <FileName>flash_bsp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Bsp\Src\flash_bsp.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -513,21 +518,6 @@
               <FileName>gd25qxx.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Compenents\gd25qxx\gd25qxx.c</FilePath>
-            </File>
-            <File>
-              <FileName>lfs.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Compenents\gd25qxx\lfs.c</FilePath>
-            </File>
-            <File>
-              <FileName>lfs_port.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Compenents\gd25qxx\lfs_port.c</FilePath>
-            </File>
-            <File>
-              <FileName>lfs_util.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Compenents\gd25qxx\lfs_util.c</FilePath>
             </File>
           </Files>
         </Group>

@@ -248,18 +248,7 @@ void sd_fatfs_test(void)
     }
 }
 
-/* Compatibility wrappers for legacy call sites. */
-void sd_lfs_init(void)
-{
-    sd_fatfs_init();
-}
-
-void sd_lfs_test(void)
-{
-    sd_fatfs_test();
-}
-
-/* Provide assert backend for libraries (e.g. littlefs) that require it. */
+/* Provide assert backend for libraries that require it. */
 void __aeabi_assert(const char *expr, const char *file, int line)
 {
     uart_printf(DEBUG_USART,
