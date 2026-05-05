@@ -1,7 +1,7 @@
 #include "adc_app.h"
 
 #include "adc_bsp.h"
-#include "mcu_cmic_gd32f470vet6.h"
+#include "main.h"
 
 #define ADC_APP_REFERENCE_MILLIVOLT 3300U
 #define ADC_APP_FULL_SCALE_VALUE    4095U

@@ -83,11 +83,7 @@ static int flash_page_write(uint32_t addr, const uint8_t *data, uint32_t len)
     flash_bus_select();
     (void)flash_bus_transfer(FLASH_CMD_WRITE);
     flash_send_addr(addr);
-    while (len > 0U) {
-        (void)flash_bus_transfer(*data);
-        data++;
-        len--;
-    }
+    flash_bus_write(data, len);
     flash_bus_deselect();
 
     flash_wait_idle();
@@ -160,11 +156,7 @@ int flash_read(uint32_t addr, uint8_t *data, uint32_t len)
     flash_bus_select();
     (void)flash_bus_transfer(FLASH_CMD_READ);
     flash_send_addr(addr);
-    while (len > 0U) {
-        *data = flash_bus_transfer(FLASH_DUMMY_BYTE);
-        data++;
-        len--;
-    }
+    flash_bus_read(data, len);
     flash_bus_deselect();
 
     return 0;

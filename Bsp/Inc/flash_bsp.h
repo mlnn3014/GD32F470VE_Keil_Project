@@ -13,6 +13,8 @@ void flash_bus_init(void);
 void flash_bus_select(void);
 void flash_bus_deselect(void);
 uint8_t flash_bus_transfer(uint8_t data);
+void flash_bus_read(uint8_t *data, uint32_t len);
+void flash_bus_write(const uint8_t *data, uint32_t len);
 
 #ifdef __cplusplus
 }

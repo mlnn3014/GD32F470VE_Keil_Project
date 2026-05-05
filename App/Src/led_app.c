@@ -1,4 +1,4 @@
-#include "mcu_cmic_gd32f470vet6.h"
+#include "main.h"
 
 typedef struct {
     uint8_t active;

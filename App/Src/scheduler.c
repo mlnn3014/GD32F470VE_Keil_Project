@@ -1,4 +1,4 @@
-#include "mcu_cmic_gd32f470vet6.h"
+#include "main.h"
 
 typedef struct {
     void (*run)(void);
@@ -9,6 +9,7 @@ typedef struct {
 static task_t tasks[] =
 {
     {btn_task,  5U,   0U},
+    {gd30_task, 1U,   0U},
     {adc_task,  100U, 0U},
     {dac_task,  100U, 0U},
     {oled_task, 10U,  0U},

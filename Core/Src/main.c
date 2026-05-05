@@ -1,4 +1,4 @@
-#include "mcu_cmic_gd32f470vet6.h"
+#include "main.h"
 
 int main(void)
 {
@@ -24,7 +24,8 @@ int main(void)
                 flash_info.size);
 
     uart_printf(DEBUG_USART, "BOOT: gd30 init...\r\n");
-    bsp_gd30ad3344_init();
+    gd30_bus_init();
+    gd30_app_init();
     uart_printf(DEBUG_USART, "BOOT: gd30 done\r\n");
 
     uart_printf(DEBUG_USART, "BOOT: adc init...\r\n");
