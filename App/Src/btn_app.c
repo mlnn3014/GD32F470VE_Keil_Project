@@ -28,7 +28,6 @@ static void btn_toggle_led(uint8_t id)
     switch ((btn_id_t)id)
     {
     case BTN_1:
-        led_app_blink_toggle(LED_1, 100U);
         break;
     case BTN_2:
         led_app_toggle(LED_2);
@@ -68,10 +67,6 @@ static void btn_event(button_t *button, button_event_t event)
         btn_toggle_led(button->id);
         break;
     case BUTTON_EVT_LONG_PRESS:
-        if (button->id == BTN_2)
-        {
-            led_app_blink_toggle(LED_2, 100U);
-        }
         break;
     default:
         break;

@@ -61,15 +61,20 @@ uint32_t gd30_rate_wait_ms(gd30_rate_t rate)
     return gd30_rate_wait_table_ms[rate];
 }
 
-int32_t gd30_sample_to_microvolt(int16_t sample, gd30_pga_t pga)
+int32_t gd30_pga_full_scale_microvolt(gd30_pga_t pga)
 {
-    int64_t value;
-
     if ((uint32_t)pga >= (sizeof(gd30_pga_microvolt) / sizeof(gd30_pga_microvolt[0]))) {
         pga = GD30_PGA_4V096;
     }
 
-    value = (int64_t)sample * gd30_pga_microvolt[pga];
+    return gd30_pga_microvolt[pga];
+}
+
+int32_t gd30_sample_to_microvolt(int16_t sample, gd30_pga_t pga)
+{
+    int64_t value;
+
+    value = (int64_t)sample * gd30_pga_full_scale_microvolt(pga);
     value /= 32768;
 
     return (int32_t)value;

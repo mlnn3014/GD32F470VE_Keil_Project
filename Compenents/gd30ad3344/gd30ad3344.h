@@ -40,6 +40,7 @@ typedef enum {
 typedef struct {
     int16_t sample;
     int32_t microvolt;
+    gd30_pga_t pga;
     uint8_t valid;
 } gd30_channel_data_t;
 
@@ -49,6 +50,7 @@ typedef struct {
 
 uint16_t gd30_make_config(gd30_channel_t channel, gd30_pga_t pga, gd30_rate_t rate);
 uint32_t gd30_rate_wait_ms(gd30_rate_t rate);
+int32_t gd30_pga_full_scale_microvolt(gd30_pga_t pga);
 int32_t gd30_sample_to_microvolt(int16_t sample, gd30_pga_t pga);
 
 #ifdef __cplusplus

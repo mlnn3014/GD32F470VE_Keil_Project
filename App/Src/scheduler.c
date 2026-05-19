@@ -9,113 +9,60 @@
 #include "systick.h"
 #include "usart_app.h"
 
+/* 任务结构体 */
 typedef struct {
-    void (*run)(void);
-    const char *name;
-    uint32_t period_ms;
-    uint32_t last_ms;
-#if SCHEDULER_STATS_ENABLE
-    uint32_t run_count;
-    uint32_t last_cost_ms;
-    uint32_t max_cost_ms;
-    uint32_t overrun_count;
-#endif
+    void (*run)(void);   // 任务函数指针
+    uint32_t period_ms;  // 任务运行间隔（毫秒）
+    uint32_t last_ms;    // 上次运行时间记录（tick）
 } task_t;
 
+/* 任务列表：按执行顺序排列 */
 static task_t tasks[] =
 {
-    {btn_task,  "btn",  5U,   0U},
-    {gd30_task, "gd30", 1U,   0U},
-    {adc_task,  "adc",  100U, 0U},
-    {dac_task,  "dac",  100U, 0U},
-    {oled_task, "oled", 10U,  0U},
-    {uart_task, "uart", 5U,   0U},
-    {rtc_task,  "rtc",  50U,  0U}
+    {uart_task, 5U,   0U},  // 调试串口任务
+    {btn_task,  5U,   0U},  // 按键扫描任务
+    {gd30_task, 1U,   0U},  // GD30传感器采样任务
+    {rtc_task,  50U,  0U},  // RTC时钟读取任务
+    {adc_task,  100U, 0U},  // 板载电位器采样任务
+    {dac_task,  100U, 0U},  // DAC输出任务
+    {oled_task, 10U,  0U}   // OLED显示更新任务
 };
 
+/* 任务数量 */
 static const uint32_t task_count = sizeof(tasks) / sizeof(tasks[0]);
 
+/* 调度器初始化 */
 void scheduler_init(void)
 {
-    uint32_t now = systick_get_ms();
+    uint32_t now_ms = systick_get_ms(); // 获取当前系统tick（毫秒）
 
+    /* 初始化每个任务的上次运行时间 */
     for (uint32_t i = 0U; i < task_count; i++)
     {
-        tasks[i].last_ms = now;
+        tasks[i].last_ms = now_ms; // 设置初始上次运行时间
     }
 }
 
+/* 调度器运行函数（在主循环中反复调用） */
 void scheduler_run(void)
 {
-    uint32_t now = systick_get_ms();
+    uint32_t now_ms = systick_get_ms(); // 获取当前系统tick
 
     for (uint32_t i = 0U; i < task_count; i++)
     {
-        if ((uint32_t)(now - tasks[i].last_ms) >= tasks[i].period_ms)
+        /* 如果任务达到运行时间，进入循环处理 */
+        while ((uint32_t)(now_ms - tasks[i].last_ms) >= tasks[i].period_ms)
         {
-#if SCHEDULER_STATS_ENABLE
-            uint32_t start_ms;
-            uint32_t cost_ms;
-#endif
+            /* 累加上次运行时间，保证任务周期稳定 */
+            tasks[i].last_ms += tasks[i].period_ms;
 
-            tasks[i].last_ms = now;
-#if SCHEDULER_STATS_ENABLE
-            start_ms = systick_get_ms();
-#endif
-            tasks[i].run();
-#if SCHEDULER_STATS_ENABLE
-            cost_ms = (uint32_t)(systick_get_ms() - start_ms);
-            tasks[i].run_count++;
-            tasks[i].last_cost_ms = cost_ms;
-            if (cost_ms > tasks[i].max_cost_ms) {
-                tasks[i].max_cost_ms = cost_ms;
+            /* 如果任务落后太多（执行时间超过周期），直接跳过多余周期，避免无限追赶 */
+            if ((uint32_t)(now_ms - tasks[i].last_ms) >= tasks[i].period_ms)
+            {
+                tasks[i].last_ms = now_ms; // 将上次运行时间更新为当前时间
             }
-            if (cost_ms > tasks[i].period_ms) {
-                tasks[i].overrun_count++;
-            }
-#endif
+
+            tasks[i].run(); // 执行任务函数
         }
     }
-}
-
-uint32_t scheduler_task_count(void)
-{
-    return task_count;
-}
-
-int scheduler_get_stats(uint32_t index, scheduler_stats_t *stats)
-{
-    if ((stats == 0) || (index >= task_count)) {
-        return -1;
-    }
-
-    stats->name = tasks[index].name;
-    stats->period_ms = tasks[index].period_ms;
-#if SCHEDULER_STATS_ENABLE
-    stats->run_count = tasks[index].run_count;
-    stats->last_cost_ms = tasks[index].last_cost_ms;
-    stats->max_cost_ms = tasks[index].max_cost_ms;
-    stats->overrun_count = tasks[index].overrun_count;
-#else
-    stats->run_count = 0U;
-    stats->last_cost_ms = 0U;
-    stats->max_cost_ms = 0U;
-    stats->overrun_count = 0U;
-#endif
-
-    return 0;
-}
-
-void scheduler_clear_stats(void)
-{
-#if SCHEDULER_STATS_ENABLE
-    uint32_t i;
-
-    for (i = 0U; i < task_count; i++) {
-        tasks[i].run_count = 0U;
-        tasks[i].last_cost_ms = 0U;
-        tasks[i].max_cost_ms = 0U;
-        tasks[i].overrun_count = 0U;
-    }
-#endif
 }

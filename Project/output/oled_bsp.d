@@ -1,9 +1,6 @@
 .\output\oled_bsp.o: ..\Bsp\Src\oled_bsp.c
 .\output\oled_bsp.o: ..\Bsp\Inc\oled_bsp.h
 .\output\oled_bsp.o: C:\Users\ASUS\AppData\Local\Keil_v5\ARM\ARMCOMPLIER506\Bin\..\include\stdint.h
-.\output\oled_bsp.o: ..\Compenents\oled\libdriver\driver_ssd1306.h
-.\output\oled_bsp.o: C:\Users\ASUS\AppData\Local\Keil_v5\ARM\ARMCOMPLIER506\Bin\..\include\stdio.h
-.\output\oled_bsp.o: C:\Users\ASUS\AppData\Local\Keil_v5\ARM\ARMCOMPLIER506\Bin\..\include\string.h
 .\output\oled_bsp.o: ..\Firmware\CMSIS\GD\GD32F4xx\Include\gd32f4xx.h
 .\output\oled_bsp.o: ..\Firmware\CMSIS\core_cm4.h
 .\output\oled_bsp.o: ..\Firmware\CMSIS\core_cmInstr.h
@@ -42,7 +39,4 @@
 .\output\oled_bsp.o: ..\Firmware\GD32F4xx_standard_peripheral\Include\gd32f4xx_exmc.h
 .\output\oled_bsp.o: ..\Firmware\GD32F4xx_standard_peripheral\Include\gd32f4xx_ipa.h
 .\output\oled_bsp.o: ..\Firmware\GD32F4xx_standard_peripheral\Include\gd32f4xx_tli.h
-.\output\oled_bsp.o: ..\Compenents\oled\oledfont.h
-.\output\oled_bsp.o: ..\Core\Inc\systick.h
-.\output\oled_bsp.o: ..\App\Inc\usart_app.h
-.\output\oled_bsp.o: C:\Users\ASUS\AppData\Local\Keil_v5\ARM\ARMCOMPLIER506\Bin\..\include\stdarg.h
+.\output\oled_bsp.o: C:\Users\ASUS\AppData\Local\Keil_v5\ARM\ARMCOMPLIER506\Bin\..\include\string.h

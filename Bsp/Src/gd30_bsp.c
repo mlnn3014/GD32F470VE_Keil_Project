@@ -73,3 +73,29 @@ uint16_t gd30_transfer16(uint16_t value)
 
     return received;
 }
+
+void gd30_transfer16_sequence(const uint16_t *tx, uint16_t *rx, uint32_t count)
+{
+    uint32_t i;
+
+    gd30_select();
+    for (i = 0U; i < count; i++) {
+        uint16_t value;
+        uint16_t received;
+
+        value = 0U;
+        if (tx != 0) {
+            value = tx[i];
+        }
+
+        received = ((uint16_t)gd30_transfer8((uint8_t)(value >> 8)) << 8);
+        received |= gd30_transfer8((uint8_t)value);
+
+        if (rx != 0) {
+            rx[i] = received;
+        }
+    }
+    while (SET == spi_i2s_flag_get(GD30_SPI, SPI_FLAG_TRANS)) {
+    }
+    gd30_deselect();
+}

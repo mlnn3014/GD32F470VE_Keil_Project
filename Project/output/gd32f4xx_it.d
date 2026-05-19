@@ -39,10 +39,8 @@
 .\output\gd32f4xx_it.o: ..\Firmware\GD32F4xx_standard_peripheral\Include\gd32f4xx_exmc.h
 .\output\gd32f4xx_it.o: ..\Firmware\GD32F4xx_standard_peripheral\Include\gd32f4xx_ipa.h
 .\output\gd32f4xx_it.o: ..\Firmware\GD32F4xx_standard_peripheral\Include\gd32f4xx_tli.h
-.\output\gd32f4xx_it.o: ..\Core\Inc\main.h
 .\output\gd32f4xx_it.o: ..\Core\Inc\systick.h
 .\output\gd32f4xx_it.o: ..\App\Inc\led_app.h
 .\output\gd32f4xx_it.o: ..\Bsp\Inc\led_bsp.h
-.\output\gd32f4xx_it.o: ..\Bsp\Inc\oled_bsp.h
 .\output\gd32f4xx_it.o: ..\Compenents\sdio\sdio_sdcard.h
-.\output\gd32f4xx_it.o: C:\Users\ASUS\AppData\Local\Keil_v5\ARM\ARMCOMPLIER506\Bin\..\include\string.h
+.\output\gd32f4xx_it.o: ..\Bsp\Inc\usart_bsp.h
